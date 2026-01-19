@@ -1,0 +1,684 @@
+"use client";
+import { useState, useEffect } from "react";
+import { getUserFromToken } from "@/lib/auth";
+
+export default function Dashboard() {
+  const [user, setUser] = useState(null);
+  const [attendance, setAttendance] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [clockedIn, setClockedIn] = useState(false);
+  const [selectedImage, setSelectedImage] = useState(null);
+  const [showImageModal, setShowImageModal] = useState(false);
+
+  useEffect(() => {
+    // Get user data from localStorage
+    const token = localStorage.getItem("token");
+    const userId = localStorage.getItem("userId");
+    const role = localStorage.getItem("role");
+
+    if (token && userId) {
+      setUser({ id: userId, role });
+      fetchAttendance(userId);
+    } else {
+          // Show location permission request message
+          console.log('Requesting location permission for clock-in...');
+      window.location.href = "/";
+    }
+  }, []);
+
+  const fetchAttendance = async (userId) => {
+    try {
+      const res = await fetch("/api/attendance/report", {
+        headers: {
+          Authorization: `Bearer ${localStorage.getItem("token")}`,
+        },
+      });
+
+      if (res.ok) {
+        const data = await res.json();
+        setAttendance(data);
+        
+        // Check if user is currently clocked in
+        const today = new Date().toDateString();
+        const todayAttendance = data.find(record => 
+          new Date(record.ClockInTime).toDateString() === today
+        );
+        
+        setClockedIn(!!todayAttendance && !todayAttendance.ClockOutTime);
+      }
+    } catch (error) {
+      console.error("Error fetching attendance:", error);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const openImageModal = (imagePath, type) => {
+    setSelectedImage({ path: imagePath, type: type });
+    setShowImageModal(true);
+  };
+
+  const closeImageModal = () => {
+    setSelectedImage(null);
+    setShowImageModal(false);
+  };
+
+  const captureSelfieAndClockIn = async () => {
+    try {
+      // Check camera permission first with better error handling
+      let stream;
+      let cameraAttempts = 0;
+      const maxAttempts = 2;
+      
+      while (cameraAttempts < maxAttempts) {
+        try {
+          console.log(`Camera attempt ${cameraAttempts + 1}`);
+          stream = await navigator.mediaDevices.getUserMedia({ 
+            video: { 
+              facingMode: 'user',
+              width: { ideal: 640 },
+              height: { ideal: 480 }
+            } 
+          });
+          console.log('Camera access granted');
+          break; // Success, exit loop
+        } catch (cameraError) {
+          console.error(`Camera attempt ${cameraAttempts + 1} failed:`, cameraError);
+          cameraAttempts++;
+          
+          if (cameraAttempts >= maxAttempts) {
+            // Final attempt failed
+            if (cameraError.name === 'NotAllowedError' || cameraError.name === 'PermissionDeniedError') {
+              alert('Camera permission is required for attendance.\n\nTo enable camera:\n1. Click the lock/icon in your browser address bar\n2. Allow camera access\n3. Refresh the page\n\nOr use Chrome/Safari for better compatibility.');
+              return;
+            } else if (cameraError.name === 'NotFoundError' || cameraError.name === 'DevicesNotFoundError') {
+              alert('No camera found on this device. Please use a device with camera to clock in.');
+              return;
+            } else if (cameraError.name === 'NotReadableError' || cameraError.name === 'TrackStartError') {
+              alert('Camera is already in use by another application. Please close other apps and try again.');
+              return;
+            } else if (cameraError.name === 'OverconstrainedError' || cameraError.name === 'ConstraintNotSatisfiedError') {
+              alert('Camera does not support the required settings. Please try again.');
+              return;
+            } else {
+          // Show location permission request message
+          console.log('Requesting location permission for clock-in...');
+              alert('Camera error: ' + (cameraError.message || 'Unknown error') + '. Please try again or use a different browser.');
+              return;
+            }
+          } else {
+          // Show location permission request message
+          console.log('Requesting location permission for clock-in...');
+            // First attempt failed, ask user to retry
+            const retry = confirm('Camera access needed for attendance. Allow camera access and click OK to retry.');
+            if (!retry) {
+              alert('Camera access is required for clock in. Please enable camera permissions and refresh the page.');
+              return;
+            }
+            // Wait a bit before retry
+            await new Promise(resolve => setTimeout(resolve, 500));
+          }
+        }
+      }
+      
+      // If we couldn't get stream after all attempts
+      if (!stream) {
+        alert('Unable to access camera. Please check your browser settings and try again.');
+        return;
+      }
+      
+      // Create video element for camera stream
+      const video = document.createElement('video');
+      video.srcObject = stream;
+      video.autoplay = true;
+      video.playsInline = true;
+      
+      // Wait for video to be ready
+      await new Promise((resolve) => {
+        video.onloadedmetadata = resolve;
+      });
+      
+      // Create canvas to capture photo
+      const canvas = document.createElement('canvas');
+      canvas.width = video.videoWidth;
+      canvas.height = video.videoHeight;
+      const context = canvas.getContext('2d');
+      context.drawImage(video, 0, 0);
+      
+      // Stop camera stream
+      stream.getTracks().forEach(track => track.stop());
+      
+      // Convert canvas to blob and then to file
+      const blob = await new Promise((resolve) => {
+        canvas.toBlob(resolve, 'image/jpeg', 0.8);
+      });
+      
+      const selfieFile = new File([blob], 'selfie.jpg', { type: 'image/jpeg' });
+      
+      // Get user location with mobile-friendly fallbacks and permission handling
+      let lat, lng;
+      try {
+        // Check if geolocation is supported
+        if (!navigator.geolocation) {
+          console.log("Geolocation not supported, using defaults");
+          lat = 23.0225;
+          lng = 72.5714;
+        } else {
+          // Show location permission request message
+          console.log('Requesting location permission for clock-in...');
+          const position = await new Promise((resolve, reject) => {
+            const options = {
+              enableHighAccuracy: false, // Better for mobile
+              timeout: 20000, // Longer timeout for mobile
+              maximumAge: 60000 // Accept cached location
+            };
+            
+            navigator.geolocation.getCurrentPosition(
+              (pos) => {
+                console.log("Location received successfully:", pos.coords);
+                resolve(pos.coords);
+              },
+              (error) => {
+                console.log("Geolocation error:", error);
+                let message = 'Location access denied. Using default location (Ahmedabad).';
+                
+                if (error.code === 1) { // PERMISSION_DENIED
+                  message = 'Location permission denied. Using default location (Ahmedabad).\n\nFor accurate attendance tracking:\n� Enable location permissions in your browser settings\n� Click the location icon in your browser address bar\n� Allow location access for this site';
+                } else if (error.code === 2) { // POSITION_UNAVAILABLE
+                  message = 'Location unavailable. Using default location (Ahmedabad).\n\nPlease check your GPS/location services.';
+                } else if (error.code === 3) { // TIMEOUT
+                  message = 'Location request timed out. Using default location (Ahmedabad).\n\nPlease try again with better network connectivity.';
+                }
+                
+                // Show user-friendly message but continue with defaults
+                console.log(message);
+                
+                // Always resolve with defaults instead of rejecting
+                resolve({ lat: 23.0225, lng: 72.5714 });
+              },
+              options
+            );
+          });
+          
+          // Multiple fallbacks for mobile compatibility
+          lat = position?.lat || position?.latitude || 23.0225;
+          lng = position?.lng || position?.longitude || 72.5714;
+          
+          // Convert to numbers and validate
+          lat = Number(lat);
+          lng = Number(lng);
+          
+          if (isNaN(lat) || isNaN(lng) || lat === 0 || lng === 0) {
+            console.log("Invalid coordinates, using defaults");
+            lat = 23.0225;
+            lng = 72.5714;
+          }
+        }
+      } catch (locationError) {
+        console.error("Location error:", locationError);
+        lat = 23.0225;
+        lng = 72.5714;
+      }
+
+      console.log("Final coordinates:", { lat, lng });
+
+      // Double-check before using
+      if (!lat || !lng || isNaN(lat) || isNaN(lng)) {
+        lat = 23.0225;
+        lng = 72.5714;
+      }
+
+      // Send clock-in request
+      const formData = new FormData();
+      formData.append("selfie", selfieFile);
+      formData.append("lat", lat.toString());
+      formData.append("lng", lng.toString());
+      
+      const res = await fetch("/api/attendance/clock-in", {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${localStorage.getItem("token")}`,
+        },
+        body: formData,
+      });
+
+      if (res.ok) {
+        alert("Clock in successful!");
+        fetchAttendance(user.id);
+      } else {
+          // Show location permission request message
+          console.log('Requesting location permission for clock-in...');
+        const data = await res.json();
+        alert(data.error || "Clock in failed");
+      }
+    } catch (error) {
+      console.error('Clock-in error:', error);
+      if (error.name === 'NotAllowedError') {
+        alert('Camera access is required. Please allow camera access to continue.');
+      } else {
+          // Show location permission request message
+          console.log('Requesting location permission for clock-in...');
+        alert("Clock in error: " + error.message);
+      }
+    }
+  };
+
+  const captureSelfieAndClockOut = async () => {
+    try {
+      // Check camera permission first with better error handling
+      let stream;
+      let cameraAttempts = 0;
+      const maxAttempts = 2;
+      
+      while (cameraAttempts < maxAttempts) {
+        try {
+          console.log(`Camera attempt ${cameraAttempts + 1}`);
+          stream = await navigator.mediaDevices.getUserMedia({ 
+            video: { 
+              facingMode: 'user',
+              width: { ideal: 640 },
+              height: { ideal: 480 }
+            } 
+          });
+          console.log('Camera access granted');
+          break; // Success, exit loop
+        } catch (cameraError) {
+          console.error(`Camera attempt ${cameraAttempts + 1} failed:`, cameraError);
+          cameraAttempts++;
+          
+          if (cameraAttempts >= maxAttempts) {
+            // Final attempt failed
+            if (cameraError.name === 'NotAllowedError' || cameraError.name === 'PermissionDeniedError') {
+              alert('Camera permission is required for attendance.\n\nTo enable camera:\n1. Click the lock/icon in your browser address bar\n2. Allow camera access\n3. Refresh the page\n\nOr use Chrome/Safari for better compatibility.');
+              return;
+            } else if (cameraError.name === 'NotFoundError' || cameraError.name === 'DevicesNotFoundError') {
+              alert('No camera found on this device. Please use a device with camera to clock out.');
+              return;
+            } else if (cameraError.name === 'NotReadableError' || cameraError.name === 'TrackStartError') {
+              alert('Camera is already in use by another application. Please close other apps and try again.');
+              return;
+            } else if (cameraError.name === 'OverconstrainedError' || cameraError.name === 'ConstraintNotSatisfiedError') {
+              alert('Camera does not support the required settings. Please try again.');
+              return;
+            } else {
+          // Show location permission request message
+          console.log('Requesting location permission for clock-in...');
+              alert('Camera error: ' + (cameraError.message || 'Unknown error') + '. Please try again or use a different browser.');
+              return;
+            }
+          } else {
+          // Show location permission request message
+          console.log('Requesting location permission for clock-in...');
+            // First attempt failed, ask user to retry
+            const retry = confirm('Camera access needed for attendance. Allow camera access and click OK to retry.');
+            if (!retry) {
+              alert('Camera access is required for clock out. Please enable camera permissions and refresh the page.');
+              return;
+            }
+            // Wait a bit before retry
+            await new Promise(resolve => setTimeout(resolve, 500));
+          }
+        }
+      }
+      
+      // If we couldn't get stream after all attempts
+      if (!stream) {
+        alert('Unable to access camera. Please check your browser settings and try again.');
+        return;
+      }
+      
+      // Create video element for camera stream
+      const video = document.createElement('video');
+      video.srcObject = stream;
+      video.autoplay = true;
+      video.playsInline = true;
+      
+      // Wait for video to be ready
+      await new Promise((resolve) => {
+        video.onloadedmetadata = resolve;
+      });
+      
+      // Create canvas to capture photo
+      const canvas = document.createElement('canvas');
+      canvas.width = video.videoWidth;
+      canvas.height = video.videoHeight;
+      const context = canvas.getContext('2d');
+      context.drawImage(video, 0, 0);
+      
+      // Stop camera stream
+      stream.getTracks().forEach(track => track.stop());
+      
+      // Convert canvas to blob and then to file
+      const blob = await new Promise((resolve) => {
+        canvas.toBlob(resolve, 'image/jpeg', 0.8);
+      });
+      
+      const selfieFile = new File([blob], 'selfie.jpg', { type: 'image/jpeg' });
+      
+      // Get user location with mobile-friendly fallbacks and permission handling
+      let lat, lng;
+      try {
+        // Check if geolocation is supported
+        if (!navigator.geolocation) {
+          console.log("Geolocation not supported, using defaults");
+          lat = 23.0225;
+          lng = 72.5714;
+        } else {
+          // Show location permission request message
+          console.log('Requesting location permission for clock-in...');
+          const position = await new Promise((resolve, reject) => {
+            const options = {
+              enableHighAccuracy: false, // Better for mobile
+              timeout: 20000, // Longer timeout for mobile
+              maximumAge: 60000 // Accept cached location
+            };
+            
+            navigator.geolocation.getCurrentPosition(
+              (pos) => {
+                console.log("Location received successfully:", pos.coords);
+                resolve(pos.coords);
+              },
+              (error) => {
+                console.log("Geolocation error:", error);
+                let message = 'Location access denied. Using default location (Ahmedabad).';
+                
+                if (error.code === 1) { // PERMISSION_DENIED
+                  message = 'Location permission denied. Using default location (Ahmedabad).\n\nFor accurate attendance tracking:\n� Enable location permissions in your browser settings\n� Click the location icon in your browser address bar\n� Allow location access for this site';
+                } else if (error.code === 2) { // POSITION_UNAVAILABLE
+                  message = 'Location unavailable. Using default location (Ahmedabad).\n\nPlease check your GPS/location services.';
+                } else if (error.code === 3) { // TIMEOUT
+                  message = 'Location request timed out. Using default location (Ahmedabad).\n\nPlease try again with better network connectivity.';
+                }
+                
+                // Show user-friendly message but continue with defaults
+                console.log(message);
+                
+                // Always resolve with defaults instead of rejecting
+                resolve({ lat: 23.0225, lng: 72.5714 });
+              },
+              options
+            );
+          });
+          
+          // Multiple fallbacks for mobile compatibility
+          lat = position?.lat || position?.latitude || 23.0225;
+          lng = position?.lng || position?.longitude || 72.5714;
+          
+          // Convert to numbers and validate
+          lat = Number(lat);
+          lng = Number(lng);
+          
+          if (isNaN(lat) || isNaN(lng) || lat === 0 || lng === 0) {
+            console.log("Invalid coordinates, using defaults");
+            lat = 23.0225;
+            lng = 72.5714;
+          }
+        }
+      } catch (locationError) {
+        console.error("Location error:", locationError);
+        lat = 23.0225;
+        lng = 72.5714;
+      }
+
+      console.log("Final coordinates:", { lat, lng });
+
+      // Double-check before using
+      if (!lat || !lng || isNaN(lat) || isNaN(lng)) {
+        lat = 23.0225;
+        lng = 72.5714;
+      }
+
+      // Send clock-out request
+      const formData = new FormData();
+      formData.append("selfie", selfieFile);
+      formData.append("lat", lat.toString());
+      formData.append("lng", lng.toString());
+      
+      const res = await fetch("/api/attendance/clock-out", {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${localStorage.getItem("token")}`,
+        },
+        body: formData,
+      });
+
+      if (res.ok) {
+        alert("Clock out successful!");
+        fetchAttendance(user.id);
+      } else {
+          // Show location permission request message
+          console.log('Requesting location permission for clock-in...');
+        const data = await res.json();
+        alert(data.error || "Clock out failed");
+      }
+    } catch (error) {
+      console.error('Clock-out error:', error);
+      if (error.name === 'NotAllowedError') {
+        alert('Camera access is required. Please allow camera access to continue.');
+      } else {
+          // Show location permission request message
+          console.log('Requesting location permission for clock-in...');
+        alert("Clock out error: " + error.message);
+      }
+    }
+  };
+
+  if (loading) {
+    return (
+      <div className="flex h-screen items-center justify-center">
+        <div className="text-xl">Loading...</div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="min-h-screen bg-gray-100 p-4">
+      <div className="max-w-4xl mx-auto">
+        <div className="bg-white rounded-lg shadow p-6">
+          <div className="flex justify-between items-center mb-6">
+            <h1 className="text-2xl font-bold">Dashboard</h1>
+            <div className="flex items-center space-x-4">
+              <span className="text-lg">Welcome, {user?.role === "User" ? user.id : "Admin"}</span>
+              <div className={`px-3 py-1 rounded-full text-sm ${
+                clockedIn ? "bg-green-100 text-green-800" : "bg-gray-100 text-gray-800"
+              }`}>
+                {clockedIn ? "Clocked In" : "Not Clocked In"}
+              </div>
+            </div>
+          </div>
+
+          {/* Clock In/Out Buttons */}
+          <div className="flex space-x-4 mb-6">
+            <button
+              onClick={captureSelfieAndClockIn}
+              disabled={clockedIn}
+              className={`px-6 py-3 rounded-lg font-medium ${
+                clockedIn 
+                  ? "bg-gray-300 cursor-not-allowed" 
+                  : "bg-blue-600 hover:bg-blue-700 text-white"
+              }`}
+            >
+              Clock In
+            </button>
+            <button
+              onClick={captureSelfieAndClockOut}
+              disabled={!clockedIn}
+              className={`px-6 py-3 rounded-lg font-medium ${
+                !clockedIn 
+                  ? "bg-gray-300 cursor-not-allowed" 
+                  : "bg-red-600 hover:bg-red-700 text-white"
+              }`}
+            >
+              Clock Out
+            </button>
+          </div>
+
+          {/* Attendance Records */}
+          <div className="overflow-x-auto">
+            <h2 className="text-xl font-semibold mb-4">Attendance Records</h2>
+            <table className="min-w-full divide-y divide-gray-200">
+              <thead className="bg-gray-50">
+                <tr>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                    Date
+                  </th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                    Clock In
+                  </th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                    Clock Out
+                  </th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                    Clock In Selfie
+                  </th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                    Clock Out Selfie
+                  </th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                    Location
+                  </th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                    Status
+                  </th>
+                </tr>
+              </thead>
+              <tbody className="bg-white divide-y divide-gray-200">
+                {attendance.map((record, index) => (
+                  <tr key={index}>
+                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+                      {new Date(record.ClockInTime).toLocaleDateString('en-IN', {
+                        year: 'numeric',
+                        month: 'short',
+                        day: 'numeric',
+                        hour: '2-digit',
+                        minute: '2-digit',
+                        hour12: true
+                      })}
+                    </td>
+                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+                      {record.ClockInTime ? new Date(record.ClockInTime).toLocaleTimeString('en-IN', {
+                        hour: '2-digit',
+                        minute: '2-digit',
+                        second: '2-digit',
+                        hour12: true
+                      }) : "-"}
+                    </td>
+                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+                      {record.ClockOutTime ? new Date(record.ClockOutTime).toLocaleTimeString('en-IN', {
+                        hour: '2-digit',
+                        minute: '2-digit',
+                        second: '2-digit',
+                        hour12: true
+                      }) : "-"}
+                    </td>
+                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+                      {record.SelfieIn ? (
+                        <img 
+                          src={record.SelfieIn} 
+                          alt="Clock In Selfie" 
+                          className="w-12 h-12 object-cover rounded-lg cursor-pointer hover:opacity-80 transition-opacity"
+                          onClick={() => openImageModal(record.SelfieIn, 'Clock In')}
+                        />
+                      ) : (
+                        <span className="text-gray-400">No photo</span>
+                      )}
+                    </td>
+                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+                      {record.SelfieOut ? (
+                        <img 
+                          src={record.SelfieOut} 
+                          alt="Clock Out Selfie" 
+                          className="w-12 h-12 object-cover rounded-lg cursor-pointer hover:opacity-80 transition-opacity"
+                          onClick={() => openImageModal(record.SelfieOut, 'Clock Out')}
+                        />
+                      ) : (
+                        <span className="text-gray-400">No photo</span>
+                      )}
+                    </td>
+                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+                      <div className="space-y-1">
+                        {record.ClockInLat && record.ClockInLng && (
+                          <div>
+                            <span className="text-xs text-gray-500">In: </span>
+                            <a 
+                              href={`https://maps.google.com/?q=${record.ClockInLat},${record.ClockInLng}`}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="text-blue-600 hover:text-blue-800 hover:underline text-xs"
+                            >
+                              {record.ClockInLat.toFixed(4)}, {record.ClockInLng.toFixed(4)}
+                            </a>
+                          </div>
+                        )}
+                        {record.ClockOutLat && record.ClockOutLng && (
+                          <div>
+                            <span className="text-xs text-gray-500">Out: </span>
+                            <a 
+                              href={`https://maps.google.com/?q=${record.ClockOutLat},${record.ClockOutLng}`}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="text-blue-600 hover:text-blue-800 hover:underline text-xs"
+                            >
+                              {record.ClockOutLat.toFixed(4)}, {record.ClockOutLng.toFixed(4)}
+                            </a>
+                          </div>
+                        )}
+                      </div>
+                    </td>
+                    <td className="px-6 py-4 whitespace-nowrap text-sm">
+                      <span className={`px-2 inline-flex text-xs leading-5 font-semibold rounded-full ${
+                        record.ClockOutTime 
+                          ? "bg-green-100 text-green-800" 
+                          : "bg-yellow-100 text-yellow-800"
+                      }`}>
+                        {record.ClockOutTime ? "Completed" : "Active"}
+                      </span>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+
+      {/* Image Modal */}
+      {showImageModal && selectedImage && (
+        <div 
+          className="fixed inset-0 bg-black bg-opacity-75 flex items-center justify-center z-50 p-4"
+          onClick={closeImageModal}
+        >
+          <div 
+            className="relative max-w-4xl max-h-full bg-white rounded-lg overflow-hidden"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex justify-between items-center p-4 border-b">
+              <h3 className="text-lg font-semibold">{selectedImage.type} Selfie</h3>
+              <button
+                onClick={closeImageModal}
+                className="text-gray-500 hover:text-gray-700 text-2xl font-bold"
+              >
+                ×
+              </button>
+            </div>
+            <div className="p-4">
+              <img 
+                src={selectedImage.path} 
+                alt={`${selectedImage.type} Selfie`} 
+                className="max-w-full max-h-96 object-contain mx-auto"
+              />
+            </div>
+            <div className="p-4 border-t">
+              <button
+                onClick={closeImageModal}
+                className="w-full px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg"
+              >
+                Close
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+};
