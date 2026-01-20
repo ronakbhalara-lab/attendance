@@ -92,26 +92,26 @@ export async function POST(req) {
     const buffer = Buffer.from(bytes);
     const fileName = Date.now() + "_" + file.name;
 
-    // Ensure uploads directory exists
-    const uploadsDir = join(process.cwd(), 'public', 'uploads');
+    // Ensure attendanceImage directory exists
+    const uploadsDir = 'D:\\attendanceImage';
     try {
       await mkdir(uploadsDir, { recursive: true });
     } catch (error) {
       // Directory might already exist, ignore error
     }
 
-    // Save file to public/uploads directory
+    // Save file to D:\attendanceImage directory
     const filePath = join(uploadsDir, fileName);
     await writeFile(filePath, buffer);
 
     await query(
       'UPDATE Attendance SET ClockOutTime = @param0, ClockOutLat = @param1, ClockOutLng = @param2, ClockOutLocation = @param3, SelfieOut = @param4 WHERE Id = @param5',
-      [new Date(), numLat, numLng, locationName, "/uploads/" + fileName, today[0].Id]
+      [new Date(), numLat, numLng, locationName, "D:\\attendanceImage\\" + fileName, today[0].Id]
     );
 
     return NextResponse.json({ 
       message: "Clock Out Success with Photo",
-      photoPath: "/uploads/" + fileName
+      photoPath: "D:\\attendanceImage\\" + fileName
     });
   } catch (error) {
     console.error('Clock-out error:', error);

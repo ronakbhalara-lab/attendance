@@ -89,15 +89,15 @@ export async function POST(req) {
     const buffer = Buffer.from(bytes);
     const fileName = Date.now() + "_" + file.name;
 
-    // Ensure uploads directory exists
-    const uploadsDir = join(process.cwd(), 'public', 'uploads');
+    // Ensure attendanceImage directory exists
+    const uploadsDir = 'D:\\attendanceImage';
     try {
       await mkdir(uploadsDir, { recursive: true });
     } catch (error) {
       // Directory might already exist, ignore error
     }
 
-    // Save file to public/uploads directory
+    // Save file to D:\attendanceImage directory
     const filePath = join(uploadsDir, fileName);
     await writeFile(filePath, buffer);
 
@@ -116,7 +116,7 @@ export async function POST(req) {
 
     await query(
       'INSERT INTO Attendance (UserId, ClockInTime, ClockInLat, ClockInLng, ClockInLocation, SelfieIn, CreatedAt, IsLate, IsApproved, ApprovalStatus, ApprovalMessage) VALUES (@param0, @param1, @param2, @param3, @param4, @param5, @param6, @param7, @param8, @param9, @param10)',
-      [user.userId, now, numLat, numLng, locationName, "/uploads/" + fileName, now, isLate ? 1 : 0, isApproved, approvalStatus, approvalMessage]
+      [user.userId, now, numLat, numLng, locationName, "D:\\attendanceImage\\" + fileName, now, isLate ? 1 : 0, isApproved, approvalStatus, approvalMessage]
     );
 
     if (isLate) {
@@ -127,7 +127,7 @@ export async function POST(req) {
 
     return NextResponse.json({ 
       message: "Clock In Success with Photo",
-      photoPath: "/uploads/" + fileName
+      photoPath: "D:\\attendanceImage\\" + fileName
     });
   } catch (error) {
     console.error('Clock-in error:', error);

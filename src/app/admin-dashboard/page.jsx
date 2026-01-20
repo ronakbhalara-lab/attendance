@@ -1,6 +1,14 @@
 "use client";
 import { useEffect, useState } from "react";
 
+// Helper function to convert file path to API URL
+const getImageUrl = (filePath) => {
+  if (!filePath) return null;
+  // Extract filename from D:\attendanceImage\filename
+  const filename = filePath.split('\\').pop();
+  return `/api/images?filename=${filename}`;
+};
+
 export default function AdminDashboard() {
   const [employees, setEmployees] = useState([]);
   const [records, setRecords] = useState([]);
@@ -314,19 +322,19 @@ export default function AdminDashboard() {
                           <div className="flex justify-center space-x-2">
                             {r.SelfieIn && (
                               <img
-                                src={r.SelfieIn}
+                                src={getImageUrl(r.SelfieIn)}
                                 alt="Clock In Selfie"
                                 className="w-16 h-16 object-cover rounded-lg border-2 border-green-300 cursor-pointer hover:scale-110 transition-transform shadow-sm"
-                                onClick={() => window.open(r.SelfieIn, '_blank')}
+                                onClick={() => window.open(getImageUrl(r.SelfieIn), '_blank')}
                                 title="Click to view Clock In selfie"
                               />
                             )}
                             {r.SelfieOut && (
                               <img
-                                src={r.SelfieOut}
+                                src={getImageUrl(r.SelfieOut)}
                                 alt="Clock Out Selfie"
                                 className="w-16 h-16 object-cover rounded-lg border-2 border-red-300 cursor-pointer hover:scale-110 transition-transform shadow-sm"
-                                onClick={() => window.open(r.SelfieOut, '_blank')}
+                                onClick={() => window.open(getImageUrl(r.SelfieOut), '_blank')}
                                 title="Click to view Clock Out selfie"
                               />
                             )}

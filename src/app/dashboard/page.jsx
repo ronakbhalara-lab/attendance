@@ -5,6 +5,14 @@ import { useAuth } from "@/hooks/useAuth";
 import { useToast } from "@/hooks/useToast";
 import { RouteGuard } from "@/components/RouteGuard";
 
+// Helper function to convert file path to API URL
+const getImageUrl = (filePath) => {
+  if (!filePath) return null;
+  // Extract filename from D:\attendanceImage\filename
+  const filename = filePath.split('\\').pop();
+  return `/api/images?filename=${filename}`;
+};
+
 export default function Dashboard() {
   const { user: authUser } = useAuth();
   const { toasts, showToast, removeToast } = useToast();
@@ -716,18 +724,18 @@ export default function Dashboard() {
                           <div className="flex space-x-2">
                             {record.SelfieIn && (
                               <img
-                                src={record.SelfieIn}
+                                src={getImageUrl(record.SelfieIn)}
                                 alt="Clock In"
                                 className="w-12 h-12 object-cover rounded cursor-pointer hover:opacity-80 transition-opacity"
-                                onClick={() => openImageModal(record.SelfieIn, 'Clock In')}
+                                onClick={() => openImageModal(getImageUrl(record.SelfieIn), 'Clock In')}
                               />
                             )}
                             {record.SelfieOut && (
                               <img
-                                src={record.SelfieOut}
+                                src={getImageUrl(record.SelfieOut)}
                                 alt="Clock Out"
                                 className="w-12 h-12 object-cover rounded cursor-pointer hover:opacity-80 transition-opacity"
-                                onClick={() => openImageModal(record.SelfieOut, 'Clock Out')}
+                                onClick={() => openImageModal(getImageUrl(record.SelfieOut), 'Clock Out')}
                               />
                             )}
                             {!record.SelfieIn && !record.SelfieOut && (
@@ -827,18 +835,18 @@ export default function Dashboard() {
                                 <div className="flex space-x-2">
                                   {record.SelfieIn && (
                                     <img
-                                      src={record.SelfieIn}
+                                      src={getImageUrl(record.SelfieIn)}
                                       alt="Clock In"
                                       className="w-8 h-8 object-cover rounded cursor-pointer hover:opacity-80 transition-opacity"
-                                      onClick={() => openImageModal(record.SelfieIn, 'Clock In')}
+                                      onClick={() => openImageModal(getImageUrl(record.SelfieIn), 'Clock In')}
                                     />
                                   )}
                                   {record.SelfieOut && (
                                     <img
-                                      src={record.SelfieOut}
+                                      src={getImageUrl(record.SelfieOut)}
                                       alt="Clock Out"
                                       className="w-8 h-8 object-cover rounded cursor-pointer hover:opacity-80 transition-opacity"
-                                      onClick={() => openImageModal(record.SelfieOut, 'Clock Out')}
+                                      onClick={() => openImageModal(getImageUrl(record.SelfieOut), 'Clock Out')}
                                     />
                                   )}
                                   {!record.SelfieIn && !record.SelfieOut && (
