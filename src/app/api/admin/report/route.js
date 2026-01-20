@@ -59,6 +59,9 @@ export async function GET(req) {
         a.ApprovalMessage,
         a.ApprovedBy,
         a.ApprovedAt,
+        a.EarlyClockOut,
+        a.EarlyClockOutReason,
+        a.LateClockInReason,
         u.FullName,
         u.Username
       FROM Attendance a

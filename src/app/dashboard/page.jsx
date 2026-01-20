@@ -24,6 +24,10 @@ export default function Dashboard() {
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [userDetails, setUserDetails] = useState(null);
 
+
+  console.log(attendance,"----------attendance-----------");
+  
+
   useEffect(() => {
     // Only fetch data if user is authenticated
     if (authUser) {
@@ -276,11 +280,31 @@ export default function Dashboard() {
         lng = 72.5714;
       }
 
+      // Check if it's late clock-in (after 9:40 AM)
+      const now = new Date();
+      const totalMinutes = now.getHours() * 60 + now.getMinutes();
+      const isLateClockIn = totalMinutes > 580; // 9:40 AM = 9 * 60 + 40 = 580 minutes
+      
+      let lateClockInReason = null;
+      
+      if (isLateClockIn) {
+        // Prompt for late clock-in reason
+        lateClockInReason = prompt("Late clock-in detected (after 9:40 AM). Please provide a reason for late arrival:");
+        
+        if (!lateClockInReason || lateClockInReason.trim() === '') {
+          showToast("Reason is required for late clock-in", 'error', 3000);
+          return;
+        }
+      }
+
       // Send clock-in request
       const formData = new FormData();
       formData.append("selfie", selfieFile);
       formData.append("lat", lat.toString());
       formData.append("lng", lng.toString());
+      if (lateClockInReason) {
+        formData.append("lateClockInReason", lateClockInReason.trim());
+      }
 
       const res = await fetch("/api/attendance/clock-in", {
         method: "POST",
@@ -291,7 +315,12 @@ export default function Dashboard() {
       });
 
       if (res.ok) {
-        showToast("Clock in successful!", 'success', 3000);
+        const data = await res.json();
+        let message = "Clock in successful!";
+        if (data.isLate) {
+          message = data.message || "Late clock-in recorded";
+        }
+        showToast(message, 'success', 3000);
         fetchAttendance(authUser.id);
       } else {
         const data = await res.json();
@@ -472,11 +501,31 @@ export default function Dashboard() {
         lng = 72.5714;
       }
 
+      // Check if it's early clock-out (before 6:30 PM)
+      const now = new Date();
+      const totalMinutes = now.getHours() * 60 + now.getMinutes();
+      const isEarlyClockOut = totalMinutes < 1110; // 6:30 PM = 18 * 60 + 30 = 1110 minutes
+      
+      let earlyClockOutReason = null;
+      
+      if (isEarlyClockOut) {
+        // Prompt for early clock-out reason
+        earlyClockOutReason = prompt("Early clock-out detected (before 6:30 PM). Please provide a reason for early departure:");
+        
+        if (!earlyClockOutReason || earlyClockOutReason.trim() === '') {
+          showToast("Reason is required for early clock-out", 'error', 3000);
+          return;
+        }
+      }
+
       // Send clock-out request
       const formData = new FormData();
       formData.append("selfie", selfieFile);
       formData.append("lat", lat.toString());
       formData.append("lng", lng.toString());
+      if (earlyClockOutReason) {
+        formData.append("earlyClockOutReason", earlyClockOutReason.trim());
+      }
 
       const res = await fetch("/api/attendance/clock-out", {
         method: "POST",
@@ -487,7 +536,12 @@ export default function Dashboard() {
       });
 
       if (res.ok) {
-        showToast("Clock out successful!", 'success', 3000);
+        const data = await res.json();
+        let message = "Clock out successful!";
+        if (data.earlyClockOut) {
+          message += " (Early Clock-out)";
+        }
+        showToast(message, 'success', 3000);
         fetchAttendance(authUser.id);
       } else {
         const data = await res.json();
@@ -712,9 +766,85 @@ export default function Dashboard() {
                         </div>
 
                         {/* Approval Status */}
-                        {record.IsLate && !record.IsApproved && (
-                          <div className="bg-yellow-100 text-yellow-800 p-2 rounded text-sm">
-                            ⚠️ {record.ApprovalMessage || "Pending approval"}
+                        {/* Late Arrival - Pending Approval */}
+                        {(record.IsLate === 1 || record.IsLate === true) && (record.IsApproved === 0 || record.IsApproved === false) && (
+                          <div className="bg-amber-50 border border-amber-200 rounded-lg p-3">
+                            <div className="flex items-start space-x-2">
+                              <div className="flex-shrink-0">
+                                <svg className="w-5 h-5 text-amber-600 mt-0.5" fill="currentColor" viewBox="0 0 20 20">
+                                  <path fillRule="evenodd" d="M8.257 3.099c.765-1.36 2.722-1.36 3.486 0l5.58 9.92c.75 1.334-.213 2.98-1.742 2.98H4.42c-1.53 0-2.493-1.646-1.743-2.98l5.58-9.92zM11 13a1 1 0 11-2 0 1 1 0 012 0zm-1-8a1 1 0 00-1 1v3a1 1 0 002 0V6a1 1 0 00-1-1z" clipRule="evenodd" />
+                                </svg>
+                              </div>
+                              <div className="flex-1">
+                                <h4 className="text-sm font-semibold text-amber-800">Late Arrival - Pending Approval</h4>
+                                <p className="text-xs text-amber-700 mt-1">{record.ApprovalMessage || "Waiting for admin approval"}</p>
+                                {record.LateClockInReason && typeof record.LateClockInReason === 'string' && record.LateClockInReason.trim() !== '' && (
+                                  <div className="mt-2 p-2 bg-amber-100 rounded-md">
+                                    <p className="text-xs font-medium text-amber-900">Reason Provided:</p>
+                                    <p className="text-sm text-amber-800 mt-1">{record.LateClockInReason}</p>
+                                  </div>
+                                )}
+                                {!record.LateClockInReason && (
+                                  <div className="mt-2 p-2 bg-amber-100 rounded-md">
+                                    <p className="text-xs font-medium text-amber-900">Status:</p>
+                                    <p className="text-sm text-amber-800 mt-1">No reason provided yet</p>
+                                  </div>
+                                )}
+                              </div>
+                            </div>
+                          </div>
+                        )}
+
+                        {/* Late Clock-in Reason (when approved) */}
+                        {(record.IsLate === 1 || record.IsLate === true) && (record.IsApproved === 1 || record.IsApproved === true) && record.LateClockInReason && typeof record.LateClockInReason === 'string' && record.LateClockInReason.trim() !== '' && (
+                          <div className="bg-blue-50 border border-blue-200 rounded-lg p-3">
+                            <div className="flex items-start space-x-2">
+                              <div className="flex-shrink-0">
+                                <svg className="w-5 h-5 text-blue-600 mt-0.5" fill="currentColor" viewBox="0 0 20 20">
+                                  <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" />
+                                </svg>
+                              </div>
+                              <div className="flex-1">
+                                <h4 className="text-sm font-semibold text-blue-800">Late Arrival - Approved</h4>
+                                <div className="mt-2 p-2 bg-blue-100 rounded-md">
+                                  <p className="text-xs font-medium text-blue-900">Reason:</p>
+                                  <p className="text-sm text-blue-800 mt-1">{record.LateClockInReason}</p>
+                                </div>
+                              </div>
+                            </div>
+                          </div>
+                        )}
+
+                        {/* Early Clock-out Reason */}
+                        {(record.EarlyClockOut === 1 || record.EarlyClockOut === true) && record.EarlyClockOutReason && typeof record.EarlyClockOutReason === 'string' && record.EarlyClockOutReason.trim() !== '' && (
+                          <div className={`${(record.IsApproved === 0 || record.IsApproved === false) ? "bg-orange-50 border border-orange-200" : "bg-green-50 border border-green-200"} rounded-lg p-3`}>
+                            <div className="flex items-start space-x-2">
+                              <div className="flex-shrink-0">
+                                {(record.IsApproved === 0 || record.IsApproved === false) ? (
+                                  <svg className="w-5 h-5 text-orange-600 mt-0.5" fill="currentColor" viewBox="0 0 20 20">
+                                    <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm1-12a1 1 0 10-2 0v4a1 1 0 00.293.707l2.828 2.829a1 1 0 101.415-1.415L11 9.586V6z" clipRule="evenodd" />
+                                  </svg>
+                                ) : (
+                                  <svg className="w-5 h-5 text-green-600 mt-0.5" fill="currentColor" viewBox="0 0 20 20">
+                                    <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" />
+                                  </svg>
+                                )}
+                              </div>
+                              <div className="flex-1">
+                                <h4 className={`text-sm font-semibold ${(record.IsApproved === 0 || record.IsApproved === false) ? "text-orange-800" : "text-green-800"}`}>
+                                  Early Clock-out - {(record.IsApproved === 0 || record.IsApproved === false) ? "Pending Approval" : "Approved"}
+                                </h4>
+                                {(record.IsApproved === 0 || record.IsApproved === false) && (
+                                  <p className="text-xs text-orange-700 mt-1">Waiting for admin approval</p>
+                                )}
+                                <div className="mt-2 p-2 bg-white rounded-md border border-gray-200">
+                                  <p className="text-xs font-medium text-gray-700">Reason Provided:</p>
+                                  <p className={`text-sm mt-1 ${(record.IsApproved === 0 || record.IsApproved === false) ? "text-orange-800" : "text-green-800"}`}>
+                                    {record.EarlyClockOutReason}
+                                  </p>
+                                </div>
+                              </div>
+                            </div>
                           </div>
                         )}
 

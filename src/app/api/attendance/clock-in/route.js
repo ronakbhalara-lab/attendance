@@ -16,7 +16,7 @@ export async function POST(req) {
     const user = getUserFromToken(req);
     if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
-    let file, lat, lng;
+    let file, lat, lng, lateClockInReason;
     
     // Check if request is FormData or JSON
     const contentType = req.headers.get("content-type") || "";
@@ -27,6 +27,7 @@ export async function POST(req) {
       file = data.get("selfie");
       lat = data.get("lat");
       lng = data.get("lng");
+      lateClockInReason = data.get("lateClockInReason");
     } else {
       // Handle JSON (from mobile app or direct API call)
       try {
@@ -34,15 +35,16 @@ export async function POST(req) {
         file = body.selfie;
         lat = body.lat;
         lng = body.lng;
+        lateClockInReason = body.lateClockInReason;
       } catch (jsonError) {
         return NextResponse.json({ 
           error: "Invalid JSON format", 
-          details: "Expected JSON with lat, lng, and optionally selfie fields"
+          details: "Expected JSON with lat, lng, selfie, and optionally lateClockInReason fields"
         }, { status: 400 });
       }
     }
 
-    console.log('Clock-in attempt:', { userId: user.userId, hasFile: !!file, lat, lng, contentType });
+    console.log('Clock-in attempt:', { userId: user.userId, hasFile: !!file, lat, lng, contentType, lateClockInReason });
 
     // Validate required fields
     if (!lat || !lng) {
@@ -107,27 +109,38 @@ export async function POST(req) {
     let approvalStatus = "Approved";
     let isApproved = 1;
     let approvalMessage = null;
+    let finalLateReason = null;
 
     if (isLate) {
+      // Require reason for late clock-in
+      if (!lateClockInReason || lateClockInReason.trim() === '') {
+        return NextResponse.json({ 
+          error: "Late clock-in detected (after 9:40 AM). Please provide a reason for late arrival." 
+        }, { status: 400 });
+      }
       approvalStatus = "Pending";
       isApproved = 0;
       approvalMessage = "You are late, contact your admin for approval";
+      finalLateReason = lateClockInReason.trim();
     }
 
     await query(
-      'INSERT INTO Attendance (UserId, ClockInTime, ClockInLat, ClockInLng, ClockInLocation, SelfieIn, CreatedAt, IsLate, IsApproved, ApprovalStatus, ApprovalMessage) VALUES (@param0, @param1, @param2, @param3, @param4, @param5, @param6, @param7, @param8, @param9, @param10)',
-      [user.userId, now, numLat, numLng, locationName, "D:\\attendanceImage\\" + fileName, now, isLate ? 1 : 0, isApproved, approvalStatus, approvalMessage]
+      'INSERT INTO Attendance (UserId, ClockInTime, ClockInLat, ClockInLng, ClockInLocation, SelfieIn, CreatedAt, IsLate, IsApproved, ApprovalStatus, ApprovalMessage, LateClockInReason) VALUES (@param0, @param1, @param2, @param3, @param4, @param5, @param6, @param7, @param8, @param9, @param10, @param11)',
+      [user.userId, now, numLat, numLng, locationName, "D:\\attendanceImage\\" + fileName, now, isLate ? 1 : 0, isApproved, approvalStatus, approvalMessage, finalLateReason]
     );
 
     if (isLate) {
       return NextResponse.json({
-        message: approvalMessage
+        message: approvalMessage,
+        isLate: true,
+        lateClockInReason: finalLateReason
       });
     }
 
     return NextResponse.json({ 
       message: "Clock In Success with Photo",
-      photoPath: "D:\\attendanceImage\\" + fileName
+      photoPath: "D:\\attendanceImage\\" + fileName,
+      isLate: false
     });
   } catch (error) {
     console.error('Clock-in error:', error);

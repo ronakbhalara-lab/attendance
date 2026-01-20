@@ -5,12 +5,18 @@ import { writeFile, mkdir } from "fs/promises";
 import { join } from "path";
 import { getShortAddress } from "@/lib/geolocation";
 
+/* ===== EARLY CLOCK-OUT CHECK FUNCTION ===== */
+function isEarlyClockOut(date = new Date()) {
+  const totalMinutes = date.getHours() * 60 + date.getMinutes();
+  return totalMinutes < 1110; // 6:30 PM = 18 * 60 + 30 = 1110 minutes
+}
+
 export async function POST(req) {
   try {
     const user = getUserFromToken(req);
     if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
-    let file, lat, lng;
+    let file, lat, lng, earlyClockOutReason;
     
     // Check if request is FormData or JSON
     const contentType = req.headers.get("content-type") || "";
@@ -21,6 +27,7 @@ export async function POST(req) {
       file = data.get("selfie");
       lat = data.get("lat");
       lng = data.get("lng");
+      earlyClockOutReason = data.get("earlyClockOutReason");
     } else {
       // Handle JSON (from mobile app or direct API call)
       try {
@@ -28,15 +35,16 @@ export async function POST(req) {
         file = body.selfie;
         lat = body.lat;
         lng = body.lng;
+        earlyClockOutReason = body.earlyClockOutReason;
       } catch (jsonError) {
         return NextResponse.json({ 
           error: "Invalid JSON format", 
-          details: "Expected JSON with lat, lng, and selfie fields"
+          details: "Expected JSON with lat, lng, selfie, and optionally earlyClockOutReason fields"
         }, { status: 400 });
       }
     }
 
-    console.log('Clock-out attempt:', { userId: user.userId, hasFile: !!file, lat, lng, contentType });
+    console.log('Clock-out attempt:', { userId: user.userId, hasFile: !!file, lat, lng, contentType, earlyClockOutReason });
 
     // Validate required fields
     if (!lat || !lng) {
@@ -104,14 +112,45 @@ export async function POST(req) {
     const filePath = join(uploadsDir, fileName);
     await writeFile(filePath, buffer);
 
-    await query(
-      'UPDATE Attendance SET ClockOutTime = @param0, ClockOutLat = @param1, ClockOutLng = @param2, ClockOutLocation = @param3, SelfieOut = @param4 WHERE Id = @param5',
-      [new Date(), numLat, numLng, locationName, "D:\\attendanceImage\\" + fileName, today[0].Id]
-    );
+    // Check if it's an early clock-out and require reason
+    const now = new Date();
+    const isEarly = isEarlyClockOut(now);
+    let earlyClockOutFlag = 0;
+    let finalReason = null;
+    let needsApproval = false;
+
+    if (isEarly) {
+      if (!earlyClockOutReason || earlyClockOutReason.trim() === '') {
+        return NextResponse.json({ 
+          error: "Early clock-out detected (before 6:30 PM). Please provide a reason for early departure." 
+        }, { status: 400 });
+      }
+      earlyClockOutFlag = 1;
+      finalReason = earlyClockOutReason.trim();
+      needsApproval = true;
+    }
+
+    // Update attendance record with approval status if needed
+    let updateQuery, updateParams;
+    
+    if (needsApproval) {
+      // Early clock-out requires approval
+      updateQuery = 'UPDATE Attendance SET ClockOutTime = @param0, ClockOutLat = @param1, ClockOutLng = @param2, ClockOutLocation = @param3, SelfieOut = @param4, EarlyClockOut = @param5, EarlyClockOutReason = @param6, IsApproved = 0, ApprovalStatus = \'Pending\', ApprovalMessage = \'Early clock-out requires admin approval\' WHERE Id = @param7';
+      updateParams = [new Date(), numLat, numLng, locationName, "D:\\attendanceImage\\" + fileName, earlyClockOutFlag, finalReason, today[0].Id];
+    } else {
+      // Normal clock-out
+      updateQuery = 'UPDATE Attendance SET ClockOutTime = @param0, ClockOutLat = @param1, ClockOutLng = @param2, ClockOutLocation = @param3, SelfieOut = @param4, EarlyClockOut = @param5, EarlyClockOutReason = @param6 WHERE Id = @param7';
+      updateParams = [new Date(), numLat, numLng, locationName, "D:\\attendanceImage\\" + fileName, earlyClockOutFlag, finalReason, today[0].Id];
+    }
+
+    await query(updateQuery, updateParams);
 
     return NextResponse.json({ 
-      message: "Clock Out Success with Photo",
-      photoPath: "D:\\attendanceImage\\" + fileName
+      message: "Clock Out Success with Photo" + (isEarly ? " (Early Clock-out)" : ""),
+      photoPath: "D:\\attendanceImage\\" + fileName,
+      earlyClockOut: isEarly,
+      earlyClockOutReason: finalReason,
+      needsApproval: needsApproval
     });
   } catch (error) {
     console.error('Clock-out error:', error);
