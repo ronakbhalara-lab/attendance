@@ -23,6 +23,8 @@ export default function AdminDashboard() {
   const [showImageModal, setShowImageModal] = useState(false);
   const [isSidebarOpen, setIsSidebarOpen] = useState(true);
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
+  const [autoClockOutStatus, setAutoClockOutStatus] = useState(null);
+  const [runningAutoClockOut, setRunningAutoClockOut] = useState(false);
 
   /* ================= LOAD EMPLOYEES ================= */
   useEffect(() => {
@@ -43,6 +45,65 @@ export default function AdminDashboard() {
       })
       .catch(() => setError("Server error"));
   }, []);
+
+  /* ================= LOAD AUTO CLOCK-OUT STATUS ================= */
+  const loadAutoClockOutStatus = () => {
+    const token = localStorage.getItem("adminToken");
+
+    fetch("/api/attendance/auto-clock-out", {
+      headers: {
+        Authorization: `Bearer ${token}`
+      }
+    })
+      .then(res => res.json())
+      .then(data => {
+        setAutoClockOutStatus(data);
+      })
+      .catch(() => {
+        setAutoClockOutStatus({ error: "Failed to load status" });
+      });
+  };
+
+  // Load auto clock-out status on component mount
+  useEffect(() => {
+    loadAutoClockOutStatus();
+  }, []);
+
+  /* ================= RUN AUTO CLOCK-OUT ================= */
+  const runAutoClockOut = async () => {
+    if (!confirm("Are you sure you want to run auto clock-out for all pending users?")) {
+      return;
+    }
+
+    setRunningAutoClockOut(true);
+    const token = localStorage.getItem("adminToken");
+
+    try {
+      const res = await fetch("/api/attendance/auto-clock-out", {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${token}`,
+          "Content-Type": "application/json"
+        }
+      });
+
+      const data = await res.json();
+
+      if (res.ok) {
+        alert(`Auto clock-out completed successfully!\n\nProcessed: ${data.processedCount} users\nTotal Found: ${data.totalFound} users${data.errors?.length > 0 ? `\nErrors: ${data.errors.length}` : ''}`);
+        loadAutoClockOutStatus(); // Refresh status
+        if (selectedEmployee) {
+          loadAttendance(selectedEmployee); // Refresh attendance if employee is selected
+        }
+      } else {
+        alert(`Auto clock-out failed: ${data.error || 'Unknown error'}`);
+      }
+    } catch (error) {
+      alert(`Network error: ${error.message}`);
+    } finally {
+      setRunningAutoClockOut(false);
+    }
+  };
 
   /* ================= LOAD ATTENDANCE ================= */
   const loadAttendance = (employee) => {
@@ -210,7 +271,7 @@ export default function AdminDashboard() {
             <div
               key={emp.id}
               onClick={() => loadAttendance(emp)}
-              className={`p-3 rounded mb-1 cursor-pointer transition flex items-center justify-center
+              className={`p-3 rounded mb-1 cursor-pointer transition flex items-center
                 ${selectedEmployee?.id === emp.id
                   ? "bg-white text-gray-900"
                   : "hover:bg-blue-600"}

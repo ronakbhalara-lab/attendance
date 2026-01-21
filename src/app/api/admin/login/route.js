@@ -20,8 +20,8 @@ export async function POST(req) {
     // Create admin user if not exists
     const hashedPassword = await bcrypt.hash("R@dh@123#", 10);
     await query(
-      "INSERT INTO Users (Username, PasswordHash, Role) VALUES (@param0, @param1, @param2)",
-      [email, hashedPassword, "Admin"]
+      "INSERT INTO Users (Username, PasswordHash, Role, FullName) VALUES (@param0, @param1, @param2, @param3)",
+      [email, hashedPassword, "Admin", "Administrator"]
     );
     
     // Get the created admin user

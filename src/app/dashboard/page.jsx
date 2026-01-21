@@ -4,6 +4,7 @@ import { getUserFromToken } from "@/lib/auth";
 import { useAuth } from "@/hooks/useAuth";
 import { useToast } from "@/hooks/useToast";
 import { RouteGuard } from "@/components/RouteGuard";
+import ConfettiAnimation from "@/components/ConfettiAnimation";
 
 // Helper function to convert file path to API URL
 const getImageUrl = (filePath) => {
@@ -19,6 +20,9 @@ export default function Dashboard() {
   const [attendance, setAttendance] = useState([]);
   const [loading, setLoading] = useState(true);
   const [clockedIn, setClockedIn] = useState(false);
+  const [canClockIn, setCanClockIn] = useState(true);
+  const [approvalPending, setApprovalPending] = useState(false);
+  const [showConfetti, setShowConfetti] = useState(false);
   const [selectedImage, setSelectedImage] = useState(null);
   const [showImageModal, setShowImageModal] = useState(false);
   const [sidebarOpen, setSidebarOpen] = useState(false);
@@ -37,6 +41,34 @@ export default function Dashboard() {
       setLoading(false);
     }
   }, [authUser]);
+
+  // Check if user had a perfect day (clock-in before 9:40 AM AND clock-out after 6:30 PM)
+  const checkPerfectDay = (attendanceData) => {
+    const today = new Date().toDateString();
+    const todayRecord = attendanceData.find(record =>
+      new Date(record.ClockInTime).toDateString() === today &&
+      record.ClockOutTime // Must have clocked out
+    );
+
+    if (todayRecord) {
+      const clockInTime = new Date(todayRecord.ClockInTime);
+      const clockOutTime = new Date(todayRecord.ClockOutTime);
+      
+      const clockInMinutes = clockInTime.getHours() * 60 + clockInTime.getMinutes();
+      const clockOutMinutes = clockOutTime.getHours() * 60 + clockOutTime.getMinutes();
+      
+      // Check: Clock-in before 9:40 AM (580 minutes) AND Clock-out after 6:30 PM (1110 minutes)
+      const isEarlyClockIn = clockInMinutes < 580; // 9:40 AM = 9 * 60 + 40 = 580 minutes
+      const isLateClockOut = clockOutMinutes >= 1110; // 6:30 PM = 18 * 60 + 30 = 1110 minutes
+      
+      if (isEarlyClockIn && isLateClockOut) {
+        setShowConfetti(true);
+        return true;
+      }
+    }
+    
+    return false;
+  };
 
   const fetchUserDetails = async () => {
     try {
@@ -69,13 +101,21 @@ export default function Dashboard() {
         const data = await res.json();
         setAttendance(data);
 
-        // Check if user is currently clocked in
+        // Check if user had a perfect day
+        checkPerfectDay(data);
+
+        // Check if user is currently clocked in and if approval is pending
         const today = new Date().toDateString();
         const todayAttendance = data.find(record =>
           new Date(record.ClockInTime).toDateString() === today
         );
 
-        setClockedIn(!!todayAttendance && !todayAttendance.ClockOutTime);
+        const isClockedInToday = !!todayAttendance && !todayAttendance.ClockOutTime;
+        const isApprovalPending = isClockedInToday && (todayAttendance.IsApproved === 0 || todayAttendance.IsApproved === false);
+        
+        setClockedIn(isClockedInToday && !isApprovalPending);
+        setCanClockIn(!isClockedInToday); // Can only clock in if not already clocked in today
+        setApprovalPending(isApprovalPending);
       }
     } catch (error) {
       console.error("Error fetching attendance:", error);
@@ -541,6 +581,30 @@ export default function Dashboard() {
         if (data.earlyClockOut) {
           message += " (Early Clock-out)";
         }
+        
+        // Check if this was a perfect day (clock-in before 9:40 AM and clock-out after 6:30 PM)
+        const now = new Date();
+        const clockOutMinutes = now.getHours() * 60 + now.getMinutes();
+        const isLateClockOut = clockOutMinutes >= 1110; // After 6:30 PM
+        
+        // Get today's clock-in time to check if it was before 9:40 AM
+        const today = new Date().toDateString();
+        const todayRecord = attendance.find(record =>
+          new Date(record.ClockInTime).toDateString() === today
+        );
+        
+        if (todayRecord && isLateClockOut) {
+          const clockInTime = new Date(todayRecord.ClockInTime);
+          const clockInMinutes = clockInTime.getHours() * 60 + clockInTime.getMinutes();
+          const isEarlyClockIn = clockInMinutes < 580; // Before 9:40 AM
+          
+          if (isEarlyClockIn) {
+            // Perfect day achieved! Show confetti
+            setShowConfetti(true);
+            message += " 🎉 Perfect Day!";
+          }
+        }
+        
         showToast(message, 'success', 3000);
         fetchAttendance(authUser.id);
       } else {
@@ -567,6 +631,9 @@ export default function Dashboard() {
 
   return (
     <RouteGuard>
+      {/* Confetti Animation */}
+      <ConfettiAnimation show={showConfetti} />
+      
       <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100">
         {/* Mobile Header */}
         <div className="lg:hidden bg-white shadow-sm border-b border-gray-200 sticky top-0 z-30">
@@ -672,8 +739,8 @@ export default function Dashboard() {
                   <p className="text-sm text-gray-600 mb-4">Start your work day</p>
                   <button
                     onClick={captureSelfieAndClockIn}
-                    disabled={clockedIn}
-                    className={`w-full px-4 py-3 rounded-lg font-medium transition-colors text-sm sm:text-base ${clockedIn
+                    disabled={!canClockIn}
+                    className={`w-full px-4 py-3 rounded-lg font-medium transition-colors text-sm sm:text-base ${!canClockIn
                       ? "bg-gray-100 text-gray-400 cursor-not-allowed"
                       : "bg-blue-600 hover:bg-blue-700 text-white"
                       }`}
@@ -692,16 +759,28 @@ export default function Dashboard() {
                     </div>
                   </div>
                   <p className="text-sm text-gray-600 mb-4">End your work day</p>
-                  <button
-                    onClick={captureSelfieAndClockOut}
-                    disabled={!clockedIn}
-                    className={`w-full px-4 py-3 rounded-lg font-medium transition-colors text-sm sm:text-base ${!clockedIn
-                      ? "bg-gray-100 text-gray-400 cursor-not-allowed"
-                      : "bg-red-600 hover:bg-red-700 text-white"
-                      }`}
-                  >
-                    Clock Out
-                  </button>
+                  
+                  {approvalPending ? (
+                    <div className="w-full px-4 py-3 rounded-lg font-medium text-sm sm:text-base bg-orange-100 text-orange-700 border border-orange-200">
+                      <div className="flex items-center justify-center">
+                        <svg className="w-5 h-5 mr-2" fill="currentColor" viewBox="0 0 20 20">
+                          <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm1-12a1 1 0 10-2 0v4a1 1 0 00.293.707l2.828 2.829a1 1 0 101.415-1.415L11 9.586V6z" clipRule="evenodd" />
+                        </svg>
+                        Awaiting Admin Approval
+                      </div>
+                    </div>
+                  ) : (
+                    <button
+                      onClick={captureSelfieAndClockOut}
+                      disabled={!clockedIn}
+                      className={`w-full px-4 py-3 rounded-lg font-medium transition-colors text-sm sm:text-base ${!clockedIn
+                        ? "bg-gray-100 text-gray-400 cursor-not-allowed"
+                        : "bg-red-600 hover:bg-red-700 text-white"
+                        }`}
+                    >
+                      Clock Out
+                    </button>
+                  )}
                 </div>
               </div>
 
