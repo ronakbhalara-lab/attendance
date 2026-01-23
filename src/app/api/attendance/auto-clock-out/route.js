@@ -25,10 +25,11 @@ export async function POST(req) {
     
     for (const record of activeAttendance) {
       try {
-        // Set clock out time to 11:59:59 PM of the same day as clock in
+        // Set clock out time to 12:00 AM of the next day after clock in
         const clockInDate = new Date(record.ClockInTime);
         const checkOutTime = new Date(clockInDate);
-        checkOutTime.setHours(23, 59, 59, 999); // 11:59:59.999 PM
+        checkOutTime.setDate(checkOutTime.getDate() + 1); // Move to next day
+        checkOutTime.setHours(0, 0, 0, 0); // Set to exactly 12:00:00.000 AM
 
         // Use the same location as clock-in for system check-out
         let clockOutLat = record.ClockInLat;

@@ -86,13 +86,21 @@ export async function POST(req) {
       return NextResponse.json({ error: "Selfie photo is required for clock out" }, { status: 400 });
     }
 
-    const today = await query(
-      'SELECT Id FROM Attendance WHERE UserId = @param0 AND ClockOutTime IS NULL',
+    // Check if user has an active clock-in that is approved
+    const activeAttendance = await query(
+      'SELECT Id, IsApproved, ApprovalStatus FROM Attendance WHERE UserId = @param0 AND ClockOutTime IS NULL ORDER BY ClockInTime DESC',
       [user.userId]
     );
 
-    if (today.length === 0) {
+    if (activeAttendance.length === 0) {
       return NextResponse.json({ error: "Not clocked in" }, { status: 400 });
+    }
+
+    // Check if the clock-in is approved
+    if (activeAttendance[0].IsApproved === 0 || activeAttendance[0].ApprovalStatus === 'Pending') {
+      return NextResponse.json({ 
+        error: "Your clock-in is pending admin approval. You cannot clock out until it's approved." 
+      }, { status: 400 });
     }
 
     // Process selfie photo
@@ -136,11 +144,11 @@ export async function POST(req) {
     if (needsApproval) {
       // Early clock-out requires approval
       updateQuery = 'UPDATE Attendance SET ClockOutTime = @param0, ClockOutLat = @param1, ClockOutLng = @param2, ClockOutLocation = @param3, SelfieOut = @param4, EarlyClockOut = @param5, EarlyClockOutReason = @param6, IsApproved = 0, ApprovalStatus = \'Pending\', ApprovalMessage = \'Early clock-out requires admin approval\' WHERE Id = @param7';
-      updateParams = [new Date(), numLat, numLng, locationName, "D:\\attendanceImage\\" + fileName, earlyClockOutFlag, finalReason, today[0].Id];
+      updateParams = [new Date(), numLat, numLng, locationName, "D:\\attendanceImage\\" + fileName, earlyClockOutFlag, finalReason, activeAttendance[0].Id];
     } else {
       // Normal clock-out
       updateQuery = 'UPDATE Attendance SET ClockOutTime = @param0, ClockOutLat = @param1, ClockOutLng = @param2, ClockOutLocation = @param3, SelfieOut = @param4, EarlyClockOut = @param5, EarlyClockOutReason = @param6 WHERE Id = @param7';
-      updateParams = [new Date(), numLat, numLng, locationName, "D:\\attendanceImage\\" + fileName, earlyClockOutFlag, finalReason, today[0].Id];
+      updateParams = [new Date(), numLat, numLng, locationName, "D:\\attendanceImage\\" + fileName, earlyClockOutFlag, finalReason, activeAttendance[0].Id];
     }
 
     await query(updateQuery, updateParams);

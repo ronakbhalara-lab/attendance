@@ -82,6 +82,30 @@ export async function POST(req) {
       // Continue with coordinates if geocoding fails
     }
 
+    // Check for pending clock-in approval from previous days
+    const pendingApproval = await query(
+      'SELECT Id FROM Attendance WHERE UserId = @param0 AND IsApproved = 0 AND ClockOutTime IS NULL',
+      [user.userId]
+    );
+
+    if (pendingApproval.length > 0) {
+      return NextResponse.json({ 
+        error: "You have a pending clock-in approval. Please wait for admin approval before clocking in again." 
+      }, { status: 400 });
+    }
+
+    // Check if already clocked in today
+    const todayClockIn = await query(
+      'SELECT Id FROM Attendance WHERE UserId = @param0 AND CAST(ClockInTime AS DATE) = CAST(GETDATE() AS DATE)',
+      [user.userId]
+    );
+
+    if (todayClockIn.length > 0) {
+      return NextResponse.json({ 
+        error: "Already clocked in today" 
+      }, { status: 400 });
+    }
+
     if (!file) {
       return NextResponse.json({ error: "Selfie photo is required for clock in" }, { status: 400 });
     }
