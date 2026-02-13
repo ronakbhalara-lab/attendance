@@ -26,10 +26,69 @@ export default function AdminDashboard() {
   const [autoClockOutStatus, setAutoClockOutStatus] = useState(null);
   const [runningAutoClockOut, setRunningAutoClockOut] = useState(false);
   const [employeeStats, setEmployeeStats] = useState(null);
-  const [viewMode, setViewMode] = useState("individual"); // individual or all-employees
+  const [viewMode, setViewMode] = useState("individual"); // individual, all-employees, or leave-management
   const [allEmployeesData, setAllEmployeesData] = useState({});
   const [loadingAllData, setLoadingAllData] = useState(false);
   const [allEmployeesFilter, setAllEmployeesFilter] = useState("all"); // all, pending, approved, late, early
+  const [leaveRequests, setLeaveRequests] = useState([]);
+  const [loadingLeaveData, setLoadingLeaveData] = useState(false);
+  const [leaveFilter, setLeaveFilter] = useState("all"); // all, pending, approved, rejected
+
+  /* ================= LOAD LEAVE REQUESTS ================= */
+  const loadLeaveRequests = async () => {
+    setLoadingLeaveData(true);
+    try {
+      const token = localStorage.getItem("adminToken");
+
+      const res = await fetch("/api/admin/leave-requests", {
+        headers: {
+          Authorization: `Bearer ${token}`
+        }
+      });
+
+      if (res.ok) {
+        const data = await res.json();
+        setLeaveRequests(Array.isArray(data) ? data : []);
+      } else {
+        setError("Failed to load leave requests");
+      }
+    } catch (error) {
+      setError("Server error loading leave requests");
+    } finally {
+      setLoadingLeaveData(false);
+    }
+  };
+
+  /* ================= UPDATE LEAVE STATUS ================= */
+  const updateLeaveStatus = async (leaveId, status) => {
+    if (!confirm(`Are you sure you want to ${status} this leave request?`)) {
+      return;
+    }
+
+    try {
+      const token = localStorage.getItem("adminToken");
+
+      const res = await fetch(`/api/admin/leave-requests/${leaveId}`, {
+        method: "PATCH",
+        headers: {
+          Authorization: `Bearer ${token}`,
+          "Content-Type": "application/json"
+        },
+        body: JSON.stringify({ status })
+      });
+
+      if (res.ok) {
+        // Refresh leave requests
+        loadLeaveRequests();
+        alert(`Leave request ${status}d successfully`);
+      } else {
+        const data = await res.json();
+        alert(`Failed to ${status} leave request: ${data.error || 'Unknown error'}`);
+      }
+    } catch (error) {
+      alert(`Network error: ${error.message}`);
+    }
+  };
 
   /* ================= LOAD ALL EMPLOYEES ATTENDANCE ================= */
   const loadAllEmployeesAttendance = async () => {
@@ -140,6 +199,8 @@ export default function AdminDashboard() {
   useEffect(() => {
     if (viewMode === "all-employees") {
       loadAllEmployeesAttendance();
+    } else if (viewMode === "leave-management") {
+      loadLeaveRequests();
     }
   }, [viewMode]);
 
@@ -436,6 +497,32 @@ export default function AdminDashboard() {
             )}
           </div>
 
+          {/* Leave Management Option */}
+          <div
+            onClick={() => {
+              setViewMode("leave-management");
+              setSelectedEmployee(null);
+            }}
+            className={`p-3 rounded mb-2 cursor-pointer transition flex items-center
+              ${viewMode === "leave-management"
+                ? "bg-white text-blue-900"
+                : "hover:bg-blue-600"}
+              ${isSidebarCollapsed ? 'text-center' : ''}
+            `}
+            title={isSidebarCollapsed ? 'Leave Management' : ''}
+          >
+            {isSidebarCollapsed ? (
+              <span className="text-lg font-bold">
+                📝
+              </span>
+            ) : (
+              <div className="flex items-center space-x-3">
+                <span className="text-lg">📝</span>
+                <span>Leave Management</span>
+              </div>
+            )}
+          </div>
+
           {/* Divider */}
           {!isSidebarCollapsed && (
             <div className="border-t border-blue-700 my-2"></div>
@@ -508,7 +595,7 @@ export default function AdminDashboard() {
         )}
 
         <div className={`${isSidebarOpen ? 'ml-0' : 'ml-0'}`}>
-          <div className="flex items-center justify-between mb-4">
+          <div className={`flex items-center justify-between mb-4 ${viewMode === "leave-management" ? 'hidden' : 'block'}`} >
             <h1 className="text-2xl font-bold">
               Admin Attendance Dashboard
             </h1>
@@ -1075,6 +1162,185 @@ export default function AdminDashboard() {
                 </div>
               </div>
             </div>
+          )}
+
+          {/* ================= LEAVE MANAGEMENT VIEW ================= */}
+          {viewMode === "leave-management" && (
+            <>
+              <div className="flex items-center justify-between mb-4">
+                <h2 className="text-2xl font-bold">Leave Management</h2>
+                
+                {/* Leave Filter */}
+                <div className="flex items-center gap-2">
+                  <label className="text-sm font-medium text-gray-700">Filter:</label>
+                  <select
+                    value={leaveFilter}
+                    onChange={(e) => setLeaveFilter(e.target.value)}
+                    className="px-3 py-2 text-sm border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-blue-500"
+                  >
+                    <option value="all">All Leave Requests</option>
+                    <option value="pending">Pending</option>
+                    <option value="approved">Approved</option>
+                    <option value="rejected">Rejected</option>
+                  </select>
+                </div>
+              </div>
+
+              {loadingLeaveData ? (
+                <div className="text-center py-8">
+                  <p className="text-blue-600">Loading leave requests...</p>
+                </div>
+              ) : leaveRequests.length === 0 ? (
+                <div className="text-center py-8">
+                  <p className="text-gray-500">No leave requests found</p>
+                </div>
+              ) : (
+                <div className="space-y-6">
+                  {(() => {
+                    // Group leave requests by user
+                    const groupedRequests = {};
+                    const filteredRequests = leaveRequests.filter(request => {
+                      if (leaveFilter === "all") return true;
+                      return request.status === leaveFilter;
+                    });
+
+                    filteredRequests.forEach(request => {
+                      if (!groupedRequests[request.userId]) {
+                        groupedRequests[request.userId] = {
+                          userName: request.userName || `User ${request.userId}`,
+                          requests: []
+                        };
+                      }
+                      groupedRequests[request.userId].requests.push(request);
+                    });
+
+                    return Object.entries(groupedRequests).map(([userId, userData]) => (
+                      <div key={userId} className="bg-white rounded-lg shadow-md overflow-hidden">
+                        {/* User Header */}
+                        <div className="bg-gray-50 px-6 py-4 border-b">
+                          <div className="flex items-center justify-between">
+                            <h3 className="text-lg font-semibold text-gray-900">
+                              👤 {userData.userName}
+                            </h3>
+                            <div className="flex items-center gap-4 text-sm">
+                              <span className="text-gray-600">
+                                Total: {userData.requests.length}
+                              </span>
+                              <span className="text-yellow-600">
+                                Pending: {userData.requests.filter(r => r.status === 'pending').length}
+                              </span>
+                              <span className="text-green-600">
+                                Approved: {userData.requests.filter(r => r.status === 'approved').length}
+                              </span>
+                              <span className="text-red-600">
+                                Rejected: {userData.requests.filter(r => r.status === 'rejected').length}
+                              </span>
+                            </div>
+                          </div>
+                        </div>
+
+                        {/* Leave Requests Table */}
+                        <div className="overflow-x-auto">
+                          <table className="w-full">
+                            <thead className="bg-gray-50">
+                              <tr>
+                                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                                  Leave Type
+                                </th>
+                                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                                  Duration
+                                </th>
+                                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                                  Period
+                                </th>
+                                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                                  Reason
+                                </th>
+                                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                                  Applied On
+                                </th>
+                                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                                  Status
+                                </th>
+                                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                                  Actions
+                                </th>
+                              </tr>
+                            </thead>
+                            <tbody className="bg-white divide-y divide-gray-200">
+                              {userData.requests.map((request) => (
+                                <tr key={request.id} className="hover:bg-gray-50">
+                                  <td className="px-6 py-4 whitespace-nowrap">
+                                    <span className="capitalize text-sm text-gray-900">
+                                      {request.leaveType}
+                                    </span>
+                                  </td>
+                                  <td className="px-6 py-4 whitespace-nowrap">
+                                    <span className="text-sm text-gray-900">
+                                      {request.leaveDuration === 'full' ? 'Full Day' : 
+                                       request.leaveDuration === 'firstHalf' ? 'First Half' : 
+                                       'Second Half'}
+                                    </span>
+                                  </td>
+                                  <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+                                    {new Date(request.startDate).toLocaleDateString()} - {new Date(request.endDate).toLocaleDateString()}
+                                  </td>
+                                  <td className="px-6 py-4 text-sm text-gray-900">
+                                    <div className="max-w-xs truncate" title={request.reason}>
+                                      {request.reason}
+                                    </div>
+                                  </td>
+                                  <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+                                    {new Date(request.createdAt).toLocaleDateString()}
+                                  </td>
+                                  <td className="px-6 py-4 whitespace-nowrap">
+                                    <span className={`px-2 inline-flex text-xs leading-5 font-semibold rounded-full ${
+                                      request.status === 'approved' 
+                                        ? 'bg-green-100 text-green-800'
+                                        : request.status === 'rejected'
+                                        ? 'bg-red-100 text-red-800'
+                                        : 'bg-yellow-100 text-yellow-800'
+                                    }`}>
+                                      {request.status || 'pending'}
+                                    </span>
+                                  </td>
+                                  <td className="px-6 py-4 whitespace-nowrap">
+                                    <div className="flex items-center gap-2">
+                                      {request.status === 'pending' && (
+                                        <>
+                                          <button
+                                            onClick={() => updateLeaveStatus(request.id, 'approve')}
+                                            className="px-3 py-1 bg-green-600 hover:bg-green-700 text-white text-xs font-medium rounded transition-colors"
+                                          >
+                                            Approve
+                                          </button>
+                                          <button
+                                            onClick={() => updateLeaveStatus(request.id, 'reject')}
+                                            className="px-3 py-1 bg-red-600 hover:bg-red-700 text-white text-xs font-medium rounded transition-colors"
+                                          >
+                                            Reject
+                                          </button>
+                                        </>
+                                      )}
+                                      <button
+                                        onClick={() => updateLeaveStatus(request.id, 'cancel')}
+                                        className="px-3 py-1 bg-gray-600 hover:bg-gray-700 text-white text-xs font-medium rounded transition-colors"
+                                      >
+                                        Cancel
+                                      </button>
+                                    </div>
+                                  </td>
+                                </tr>
+                              ))}
+                            </tbody>
+                          </table>
+                        </div>
+                      </div>
+                    ));
+                  })()}
+                </div>
+              )}
+            </>
           )}
 
         </div>

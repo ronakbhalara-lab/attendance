@@ -5,6 +5,7 @@ import { useAuth } from "@/hooks/useAuth";
 import { useToast } from "@/hooks/useToast";
 import { RouteGuard } from "@/components/RouteGuard";
 import ConfettiAnimation from "@/components/ConfettiAnimation";
+import DashboardLayout from "@/components/DashboardLayout";
 
 // Helper function to convert file path to API URL
 const getImageUrl = (filePath) => {
@@ -28,14 +29,10 @@ export default function Dashboard() {
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [userDetails, setUserDetails] = useState(null);
   const [showCameraModal, setShowCameraModal] = useState(false);
-  const [cameraMode, setCameraMode] = useState(''); // 'clock-in' or 'clock-out'
+  const [cameraMode, setCameraMode] = useState('');
   const [cameraStream, setCameraStream] = useState(null);
   const [capturedImage, setCapturedImage] = useState(null);
   const [isProcessing, setIsProcessing] = useState(false);
-
-
-  console.log(attendance,"----------attendance-----------");
-  
 
   useEffect(() => {
     // Only fetch data if user is authenticated
@@ -479,90 +476,9 @@ export default function Dashboard() {
 
   return (
     <RouteGuard>
-      {/* Confetti Animation */}
-      <ConfettiAnimation show={showConfetti} />
-      
-      <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100">
-        {/* Mobile Header */}
-        <div className="lg:hidden bg-white shadow-sm border-b border-gray-200 sticky top-0 z-30">
-          <div className="px-4 py-3">
-            <div className="flex items-center justify-between mb-2">
-              <div className="flex items-center space-x-3">
-                <button
-                  onClick={() => setSidebarOpen(!sidebarOpen)}
-                  className="p-2 rounded-md text-gray-600 hover:text-gray-900 hover:bg-gray-100 transition-colors"
-                >
-                  <svg className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6h16M4 12h16M4 18h16" />
-                  </svg>
-                </button>
-                <h1 className="text-lg font-semibold text-gray-900">Attendance</h1>
-              </div>
-              <div className={`px-2 py-1 rounded-full text-xs font-medium ${clockedIn ? "bg-green-100 text-green-800" : "bg-gray-100 text-gray-800"
-                }`}>
-                {clockedIn ? "Active" : "Inactive"}
-              </div>
-            </div>
-            {userDetails && (
-              <div className="text-sm">
-                <span className="text-gray-500">Welcome, </span>
-                <span className="font-medium text-gray-900">
-                  {userDetails.name || `User ${userDetails.id}`}
-                </span>
-              </div>
-            )}
-          </div>
-        </div>
-
-        <div className="flex flex-col lg:flex-row">
-          {/* Sidebar - Desktop */}
-          <div className="hidden lg:flex lg:flex-shrink-0 lg:sticky lg:top-0 lg:h-screen">
-            <div className="w-64 bg-white shadow-lg lg:overflow-y-auto flex flex-col">
-              <div className="p-6 flex-1">
-                <div className="flex items-center space-x-3 mb-6">
-                  <div className="w-10 h-10 bg-blue-600 rounded-lg flex items-center justify-center">
-                    <svg className="w-6 h-6 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
-                    </svg>
-                  </div>
-                  <div>
-                    <h2 className="text-lg font-semibold text-gray-900">Welcome</h2>
-                    <p className="text-sm text-gray-500">
-                      {userDetails?.name || (authUser?.role === "User" ? `User ${authUser.id}` : "Admin")}
-                    </p>
-                  </div>
-                </div>
-
-                <div className="space-y-4">
-                  <div className={`p-3 rounded-lg ${clockedIn ? "bg-green-50 border border-green-200" : "bg-gray-50 border border-gray-200"
-                    }`}>
-                    <div className="flex items-center justify-between">
-                      <span className="text-sm font-medium text-gray-900">Status</span>
-                      <div className={`w-2 h-2 rounded-full ${clockedIn ? "bg-green-500" : "bg-gray-400"
-                        }`}></div>
-                    </div>
-                    <p className="text-xs text-gray-600 mt-1">
-                      {clockedIn ? "Currently Clocked In" : "Not Clocked In"}
-                    </p>
-                  </div>
-                </div>
-              </div>
-
-              {/* Sticky Logout Button */}
-              <div className="p-4 border-t border-gray-200 bg-white">
-                <button
-                  onClick={handleLogout}
-                  className="w-full px-4 py-2 bg-red-600 hover:bg-red-700 text-white rounded-lg font-medium transition-colors text-sm"
-                >
-                  Logout
-                </button>
-              </div>
-            </div>
-          </div>
-
-          {/* Main Content */}
-          <div className="flex-1 lg:ml-0">
-            <div className="p-4 sm:p-6 lg:p-4">
+      <DashboardLayout>
+        {/* Confetti Animation */}
+        <ConfettiAnimation show={showConfetti} />
               {/* Header */}
               <div className="mb-6 lg:mb-8">
                 <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between">
@@ -973,52 +889,6 @@ export default function Dashboard() {
                   </div>
                 </div>
               </div>
-            </div>
-          </div>
-        </div>
-
-        {/* Mobile Sidebar Overlay */}
-        {sidebarOpen && (
-          <div className="fixed inset-0 z-40 lg:hidden">
-            <div className="fixed inset-0 bg-black bg-opacity-25" onClick={() => setSidebarOpen(false)}></div>
-            <div className="fixed left-0 top-0 h-full w-64 bg-white shadow-lg">
-              <div className="p-6">
-                <div className="flex items-center justify-between mb-6">
-                  <h2 className="text-lg font-semibold text-gray-900">Menu</h2>
-                  <button
-                    onClick={() => setSidebarOpen(false)}
-                    className="p-2 rounded-md text-gray-600 hover:text-gray-900 hover:bg-gray-100"
-                  >
-                    <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-                    </svg>
-                  </button>
-                </div>
-
-                <div className="space-y-4">
-                  <div className={`p-3 rounded-lg ${clockedIn ? "bg-green-50 border border-green-200" : "bg-gray-50 border border-gray-200"
-                    }`}>
-                    <div className="flex items-center justify-between">
-                      <span className="text-sm font-medium text-gray-900">Status</span>
-                      <div className={`w-2 h-2 rounded-full ${clockedIn ? "bg-green-500" : "bg-gray-400"
-                        }`}></div>
-                    </div>
-                    <p className="text-xs text-gray-600 mt-1">
-                      {clockedIn ? "Currently Clocked In" : "Not Clocked In"}
-                    </p>
-                  </div>
-
-                  <button
-                    onClick={handleLogout}
-                    className="w-full px-4 py-2 bg-red-600 hover:bg-red-700 text-white rounded-lg font-medium transition-colors text-sm"
-                  >
-                    Logout
-                  </button>
-                </div>
-              </div>
-            </div>
-          </div>
-        )}
 
         {/* Image Modal */}
         {showImageModal && selectedImage && (
@@ -1059,155 +929,155 @@ export default function Dashboard() {
             </div>
           </div>
         )}
-      </div>
 
-      {/* Camera Modal */}
-      {showCameraModal && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 z-50 flex items-center justify-center p-4">
-          <div className="bg-white rounded-xl max-w-md w-full max-h-[90vh] overflow-y-auto">
-            <div className="p-6">
-              {/* Header */}
-              <div className="flex items-center justify-between mb-4">
-                <h3 className="text-lg font-semibold text-gray-900">
-                  {cameraMode === 'clock-in' ? 'Clock In - Take Photo' : 'Clock Out - Take Photo'}
-                </h3>
-                <button
-                  onClick={closeCameraModal}
-                  className="p-2 hover:bg-gray-100 rounded-lg transition-colors"
-                >
-                  <svg className="w-5 h-5 text-gray-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-                  </svg>
-                </button>
-              </div>
+        {/* Camera Modal */}
+        {showCameraModal && (
+          <div className="fixed inset-0 bg-black bg-opacity-50 z-50 flex items-center justify-center p-4">
+            <div className="bg-white rounded-xl max-w-md w-full max-h-[90vh] overflow-y-auto">
+              <div className="p-6">
+                {/* Header */}
+                <div className="flex items-center justify-between mb-4">
+                  <h3 className="text-lg font-semibold text-gray-900">
+                    {cameraMode === 'clock-in' ? 'Clock In - Take Photo' : 'Clock Out - Take Photo'}
+                  </h3>
+                  <button
+                    onClick={closeCameraModal}
+                    className="p-2 hover:bg-gray-100 rounded-lg transition-colors"
+                  >
+                    <svg className="w-5 h-5 text-gray-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                    </svg>
+                  </button>
+                </div>
 
-              {/* Camera View or Captured Image */}
-              <div className="relative mb-4">
-                {!capturedImage ? (
-                  <div className="relative">
-                    <video
-                      id="camera-video"
-                      autoPlay
-                      playsInline
-                      muted
-                      className="w-full h-64 bg-black rounded-lg object-cover"
-                    />
-                    {!cameraStream && (
-                      <div className="absolute inset-0 flex items-center justify-center bg-gray-100 rounded-lg">
-                        <div className="text-center">
-                          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600 mx-auto mb-2"></div>
-                          <p className="text-sm text-gray-600">Starting camera...</p>
+                {/* Camera View or Captured Image */}
+                <div className="relative mb-4">
+                  {!capturedImage ? (
+                    <div className="relative">
+                      <video
+                        id="camera-video"
+                        autoPlay
+                        playsInline
+                        muted
+                        className="w-full h-64 bg-black rounded-lg object-cover"
+                      />
+                      {!cameraStream && (
+                        <div className="absolute inset-0 flex items-center justify-center bg-gray-100 rounded-lg">
+                          <div className="text-center">
+                            <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600 mx-auto mb-2"></div>
+                            <p className="text-sm text-gray-600">Starting camera...</p>
+                          </div>
                         </div>
-                      </div>
-                    )}
-                  </div>
-                ) : (
-                  <img
-                    src={capturedImage}
-                    alt="Captured"
-                    className="w-full h-64 object-cover rounded-lg"
-                  />
-                )}
-              </div>
+                      )}
+                    </div>
+                  ) : (
+                    <img
+                      src={capturedImage}
+                      alt="Captured"
+                      className="w-full h-64 object-cover rounded-lg"
+                    />
+                  )}
+                </div>
 
-              {/* Hidden Canvas for Photo Capture */}
-              <canvas id="camera-canvas" className="hidden" />
+                {/* Hidden Canvas for Photo Capture */}
+                <canvas id="camera-canvas" className="hidden" />
 
-              {/* Action Buttons */}
-              <div className="flex gap-3">
-                {!capturedImage ? (
-                  <>
-                    <button
-                      onClick={capturePhoto}
-                      disabled={!cameraStream || isProcessing}
-                      className="flex-1 bg-blue-600 hover:bg-blue-700 disabled:bg-gray-300 text-white px-4 py-3 rounded-lg font-medium transition-colors flex items-center justify-center"
-                    >
-                      <svg className="w-5 h-5 mr-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 9a2 2 0 012-2h.93a2 2 0 001.664-.89l.812-1.22A2 2 0 0110.07 4h3.86a2 2 0 011.664.89l.812 1.22A2 2 0 0018.07 7H19a2 2 0 012 2v9a2 2 0 01-2 2H5a2 2 0 01-2-2V9z" />
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 13a3 3 0 11-6 0 3 3 0 016 0z" />
-                      </svg>
-                      {isProcessing ? "Processing..." : "Capture Photo"}
-                    </button>
-                    <button
-                      onClick={closeCameraModal}
-                      className="px-4 py-3 bg-gray-200 hover:bg-gray-300 text-gray-800 rounded-lg font-medium transition-colors"
-                    >
-                      Cancel
-                    </button>
-                  </>
-                ) : (
-                  <>
-                    <button
-                      onClick={retakePhoto}
-                      className="flex-1 bg-gray-200 hover:bg-gray-300 text-gray-800 px-4 py-3 rounded-lg font-medium transition-colors"
-                    >
-                      Retake
-                    </button>
-                    <button
-                      onClick={confirmPhoto}
-                      disabled={isProcessing}
-                      className="flex-1 bg-green-600 hover:bg-green-700 disabled:bg-gray-300 text-white px-4 py-3 rounded-lg font-medium transition-colors flex items-center justify-center"
-                    >
-                      <svg className="w-5 h-5 mr-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
-                      </svg>
-                      {isProcessing ? "Processing..." : (cameraMode === 'clock-in' ? 'Clock In' : 'Clock Out')}
-                    </button>
-                  </>
-                )}
+                {/* Action Buttons */}
+                <div className="flex gap-3">
+                  {!capturedImage ? (
+                    <>
+                      <button
+                        onClick={capturePhoto}
+                        disabled={!cameraStream || isProcessing}
+                        className="flex-1 bg-blue-600 hover:bg-blue-700 disabled:bg-gray-300 text-white px-4 py-3 rounded-lg font-medium transition-colors flex items-center justify-center"
+                      >
+                        <svg className="w-5 h-5 mr-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 9a2 2 0 012-2h.93a2 2 0 001.664-.89l.812-1.22A2 2 0 0110.07 4h3.86a2 2 0 011.664.89l.812 1.22A2 2 0 0018.07 7H19a2 2 0 012 2v9a2 2 0 01-2 2H5a2 2 0 01-2-2V9z" />
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 13a3 3 0 11-6 0 3 3 0 016 0z" />
+                        </svg>
+                        {isProcessing ? "Processing..." : "Capture Photo"}
+                      </button>
+                      <button
+                        onClick={closeCameraModal}
+                        className="px-4 py-3 bg-gray-200 hover:bg-gray-300 text-gray-800 rounded-lg font-medium transition-colors"
+                      >
+                        Cancel
+                      </button>
+                    </>
+                  ) : (
+                    <>
+                      <button
+                        onClick={retakePhoto}
+                        className="flex-1 bg-gray-200 hover:bg-gray-300 text-gray-800 px-4 py-3 rounded-lg font-medium transition-colors"
+                      >
+                        Retake
+                      </button>
+                      <button
+                        onClick={confirmPhoto}
+                        disabled={isProcessing}
+                        className="flex-1 bg-green-600 hover:bg-green-700 disabled:bg-gray-300 text-white px-4 py-3 rounded-lg font-medium transition-colors flex items-center justify-center"
+                      >
+                        <svg className="w-5 h-5 mr-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                        </svg>
+                        {isProcessing ? "Processing..." : (cameraMode === 'clock-in' ? 'Clock In' : 'Clock Out')}
+                      </button>
+                    </>
+                  )}
+                </div>
               </div>
             </div>
           </div>
-        </div>
-      )}
+        )}
 
-      {/* Toast Container */}
-      <div className="fixed top-4 right-4 z-50 space-y-2">
-        {toasts.map((toast) => (
-          <div
-            key={toast.id}
-            className={`flex items-center p-4 rounded-lg shadow-lg border ${toast.type === 'success' ? 'bg-green-500 text-white border-green-600' :
-              toast.type === 'error' ? 'bg-red-500 text-white border-red-600' :
-                toast.type === 'warning' ? 'bg-yellow-500 text-black border-yellow-600' :
-                  'bg-blue-500 text-white border-blue-600'
-              }`}
-          >
-            <div className="flex-shrink-0 mr-3">
-              {toast.type === 'success' && (
-                <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 20 20">
-                  <path fillRule="evenodd" d="M16.707 5.293a1 1 0 010-1.414 1.414l-8.485 8.486a1 1 0 01-1.414 0L10 11.414l8.485-8.486a1 1 0 010-1.414 1.414z" clipRule="evenodd" />
-                </svg>
-              )}
-              {toast.type === 'error' && (
-                <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 20 20">
-                  <path fillRule="evenodd" d="M4.293 4.293a1 1 0 011.414 0L10 10.586l-8.293 8.293a1 1 0 111.414 1.414L10 12.414l8.293-8.293a1 1 0 111.414-1.414L10 10.586l-8.293 8.293z" clipRule="evenodd" />
-                </svg>
-              )}
-              {toast.type === 'warning' && (
-                <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 20 20">
-                  <path fillRule="evenodd" d="M8.257 3.099c.765-1.36 1.5-1.36 1.5-2.354 0-3.972-3-3.972-1.5 0-2.354-1.5-3.972-3.972-4.354 0-7.657 2.929-4.354 3.972-4.354 3.972 0 3.972 3 4.354 0 7.657-2.929 4.354-3.972 0z" clipRule="evenodd" />
-                </svg>
-              )}
-              {toast.type === 'info' && (
-                <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 20 20">
-                  <path fillRule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm1-1V4a1 1 0 00-2h-1a1 1 0 00-2h12a1 1 0 00-2h-1a1 1 0 00-2zM9 9a1 1 0 000 2v3a1 1 0 002h2a1 1 0 002-2V9a1 1 0 00-2-2H9a1 1 0 00-2-2z" clipRule="evenodd" />
-                </svg>
-              )}
-            </div>
-            <div className="flex-1">
-              <p className="text-sm font-medium text-white">{toast.message}</p>
-            </div>
-            <button
-              onClick={() => removeToast(toast.id)}
-              className="ml-4 flex-shrink-0 text-white hover:opacity-80 transition-opacity"
+        {/* Toast Container */}
+        <div className="fixed top-4 right-4 z-50 space-y-2">
+          {toasts.map((toast) => (
+            <div
+              key={toast.id}
+              className={`flex items-center p-4 rounded-lg shadow-lg border ${toast.type === 'success' ? 'bg-green-500 text-white border-green-600' :
+                toast.type === 'error' ? 'bg-red-500 text-white border-red-600' :
+                  toast.type === 'warning' ? 'bg-yellow-500 text-black border-yellow-600' :
+                    'bg-blue-500 text-white border-blue-600'
+                }`}
             >
-              <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 20 20">
-                <path fillRule="evenodd" d="M4.293 4.293a1 1 0 011.414 0L10 10.586l-8.293 8.293a1 1 0 01-1.414 1.414L10 12.414l8.293-8.293a1 1 0 111.414-1.414L10 10.586l-8.293 8.293z" clipRule="evenodd" />
-              </svg>
-            </button>
-          </div>
-        ))}
-      </div>
+              <div className="shrink-0 mr-3">
+                {toast.type === 'success' && (
+                  <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 20 20">
+                    <path fillRule="evenodd" d="M16.707 5.293a1 1 0 010-1.414 1.414l-8.485 8.486a1 1 0 01-1.414 0L10 11.414l8.485-8.486a1 1 0 010-1.414 1.414z" clipRule="evenodd" />
+                  </svg>
+                )}
+                {toast.type === 'error' && (
+                  <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 20 20">
+                    <path fillRule="evenodd" d="M4.293 4.293a1 1 0 011.414 0L10 10.586l-8.293 8.293a1 1 0 111.414 1.414L10 12.414l8.293-8.293a1 1 0 111.414-1.414L10 10.586l-8.293 8.293z" clipRule="evenodd" />
+                  </svg>
+                )}
+                {toast.type === 'warning' && (
+                  <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 20 20">
+                    <path fillRule="evenodd" d="M8.257 3.099c.765-1.36 1.5-1.36 1.5-2.354 0-3.972-3-3.972-1.5 0-2.354-1.5-3.972-3.972-4.354 0-7.657 2.929-4.354 3.972-4.354 3.972 0 3.972 3 4.354 0 7.657-2.929 4.354-3.972 0z" clipRule="evenodd" />
+                  </svg>
+                )}
+                {toast.type === 'info' && (
+                  <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 20 20">
+                    <path fillRule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm1-1V4a1 1 0 00-2h-1a1 1 0 00-2h12a1 1 0 00-2h-1a1 1 0 00-2zM9 9a1 1 0 000 2v3a1 1 0 002h2a1 1 0 002-2V9a1 1 0 00-2-2H9a1 1 0 00-2-2z" clipRule="evenodd" />
+                  </svg>
+                )}
+              </div>
+              <div className="flex-1">
+                <p className="text-sm font-medium text-white">{toast.message}</p>
+              </div>
+              <button
+                onClick={() => removeToast(toast.id)}
+                className="ml-4 shrink-0 text-white hover:opacity-80 transition-opacity"
+              >
+                <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 20 20">
+                  <path fillRule="evenodd" d="M4.293 4.293a1 1 0 011.414 0L10 10.586l-8.293 8.293a1 1 0 01-1.414 1.414L10 12.414l8.293-8.293a1 1 0 111.414-1.414L10 10.586l-8.293 8.293z" clipRule="evenodd" />
+                </svg>
+              </button>
+            </div>
+          ))}
+        </div>
+      </DashboardLayout>
     </RouteGuard>
   );
 };

@@ -1,0 +1,17 @@
+model LeaveRequest {
+  id          Int      @id @default(autoincrement())
+  userId      Int
+  leaveType   String
+  startDate    DateTime
+  endDate      DateTime
+  reason       String
+  leaveDuration String   @default("full") // "full", "firstHalf", "secondHalf"
+  status       String   @default("pending") // "pending", "approved", "rejected"
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  @@map("LeaveRequests")
+  @@index([userId])
+  @@index([status])
+  @@index([createdAt(sort: Desc)])
+}
