@@ -22,7 +22,7 @@
 
       // Get user details from database using SQL query
       const users = await query(
-        'SELECT Id, Username, FullName as name, Role FROM Users WHERE Id = @param0',
+        'SELECT Id, Username, FullName as name, Role, salary FROM Users WHERE Id = @param0',
         [decoded.userId]
       );
 
@@ -38,7 +38,8 @@
         username: user.Username,
         email: user.Username, // Using username as email since email column doesn't exist
         name: user.name,
-        role: user.Role
+        role: user.Role,
+        salary: user.salary || 0
       };
 
       return NextResponse.json(formattedUser);

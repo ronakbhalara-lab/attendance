@@ -12,7 +12,7 @@ export default function Sidebar({ isOpen, onClose }) {
   useEffect(() => {
     fetchUserDetails();
   }, []);
-
+  
   const fetchUserDetails = async () => {
     try {
       const token = localStorage.getItem("token");
@@ -84,7 +84,7 @@ export default function Sidebar({ isOpen, onClose }) {
     <>
       {/* Mobile backdrop */}
       {isOpen && (
-        <div 
+        <div
           className="fixed inset-0 bg-black bg-opacity-50 z-40 lg:hidden"
           onClick={onClose}
         />
@@ -93,7 +93,7 @@ export default function Sidebar({ isOpen, onClose }) {
       {/* Sidebar */}
       <div className={`
         fixed inset-y-0 left-0 z-50 w-64 bg-white shadow-lg transform transition-transform duration-300 ease-in-out h-screen
-        lg:relative lg:translate-x-0 lg:inset-0 lg:z-auto lg:h-screen
+        lg:fixed lg:translate-x-0 lg:inset-0 lg:z-40 lg:h-screen lg:top-0
         ${isOpen ? 'translate-x-0' : '-translate-x-full'}
       `}>
         <div className="flex flex-col h-full">
@@ -111,6 +111,11 @@ export default function Sidebar({ isOpen, onClose }) {
                   <p className="text-sm text-gray-500 truncate">
                     {userDetails?.name || (authUser?.role === "User" ? `User ${authUser?.id}` : "Admin")}
                   </p>
+                  {userDetails?.salary && (
+                    <p className="text-sm text-green-600 font-medium">
+                      Salary: ₹{userDetails.salary.toLocaleString()}
+                    </p>
+                  )}
                 </div>
               </div>
               {/* Mobile close button */}
@@ -146,20 +151,19 @@ export default function Sidebar({ isOpen, onClose }) {
                 <span>{item.name}</span>
               </button>
             ))}
+            {/* Logout Button */}
+            <div className="p-4 border-t border-gray-200">
+              <button
+                onClick={handleLogout}
+                className="w-full px-4 py-2 bg-red-600 hover:bg-red-700 text-white rounded-lg font-medium transition-colors text-sm flex items-center justify-center space-x-2"
+              >
+                <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1" />
+                </svg>
+                <span>Logout</span>
+              </button>
+            </div>
           </nav>
-
-          {/* Logout Button */}
-          <div className="p-4 border-t border-gray-200">
-            <button
-              onClick={handleLogout}
-              className="w-full px-4 py-2 bg-red-600 hover:bg-red-700 text-white rounded-lg font-medium transition-colors text-sm flex items-center justify-center space-x-2"
-            >
-              <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1" />
-              </svg>
-              <span>Logout</span>
-            </button>
-          </div>
         </div>
       </div>
     </>

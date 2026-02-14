@@ -47,7 +47,8 @@ export async function GET(request) {
         lr.createdAt,
         lr.updatedAt,
         u.FullName as userName,
-        u.Username as userUsername
+        u.Username as userUsername,
+        lr.actionBy
       FROM LeaveRequests lr
       INNER JOIN Users u ON lr.userId = u.Id
       ORDER BY lr.createdAt DESC

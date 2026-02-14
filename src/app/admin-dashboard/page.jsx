@@ -1,5 +1,6 @@
 "use client";
 import { useEffect, useState } from "react";
+import { useToast } from "@/hooks/useToast";
 
 // Helper function to convert file path to API URL
 const getImageUrl = (filePath) => {
@@ -9,7 +10,19 @@ const getImageUrl = (filePath) => {
   return `/api/images?filename=${filename}`;
 };
 
+// Helper function to get actual days in a month
+const getDaysInMonth = (year, month) => {
+  return new Date(year, month + 1, 0).getDate();
+};
+
+// Helper function to get current month days for salary calculation
+const getCurrentMonthDays = () => {
+  const now = new Date();
+  return getDaysInMonth(now.getFullYear(), now.getMonth());
+};
+
 export default function AdminDashboard() {
+  const { toasts, showToast, removeToast } = useToast();
   const [employees, setEmployees] = useState([]);
   const [records, setRecords] = useState([]);
   const [filteredRecords, setFilteredRecords] = useState([]);
@@ -26,13 +39,20 @@ export default function AdminDashboard() {
   const [autoClockOutStatus, setAutoClockOutStatus] = useState(null);
   const [runningAutoClockOut, setRunningAutoClockOut] = useState(false);
   const [employeeStats, setEmployeeStats] = useState(null);
-  const [viewMode, setViewMode] = useState("individual"); // individual, all-employees, or leave-management
+  const [viewMode, setViewMode] = useState("individual"); // individual, all-employees, leave-management, salary-report, final-report
   const [allEmployeesData, setAllEmployeesData] = useState({});
   const [loadingAllData, setLoadingAllData] = useState(false);
   const [allEmployeesFilter, setAllEmployeesFilter] = useState("all"); // all, pending, approved, late, early
   const [leaveRequests, setLeaveRequests] = useState([]);
   const [loadingLeaveData, setLoadingLeaveData] = useState(false);
   const [leaveFilter, setLeaveFilter] = useState("all"); // all, pending, approved, rejected
+  const [employeesSalaryData, setEmployeesSalaryData] = useState([]);
+  const [loadingSalaryData, setLoadingSalaryData] = useState(false);
+  const [editingSalary, setEditingSalary] = useState(null);
+  const [approvedLeaves, setApprovedLeaves] = useState({});
+  const [detailedLeaveInfo, setDetailedLeaveInfo] = useState({});
+  const [showLeaveModal, setShowLeaveModal] = useState(false);
+  const [selectedEmployeeForLeaves, setSelectedEmployeeForLeaves] = useState(null);
 
   /* ================= LOAD LEAVE REQUESTS ================= */
   const loadLeaveRequests = async () => {
@@ -68,25 +88,202 @@ export default function AdminDashboard() {
     try {
       const token = localStorage.getItem("adminToken");
 
-      const res = await fetch(`/api/admin/leave-requests/${leaveId}`, {
-        method: "PATCH",
+      const res = await fetch(`/api/leave/requests/${leaveId}`, {
+        method: "PUT",
         headers: {
           Authorization: `Bearer ${token}`,
           "Content-Type": "application/json"
         },
-        body: JSON.stringify({ status })
+        body: JSON.stringify({
+          status,
+          actionBy: 'admin'
+        })
       });
 
       if (res.ok) {
         // Refresh leave requests
         loadLeaveRequests();
-        alert(`Leave request ${status}d successfully`);
+        showToast(`Leave request ${status}d successfully`, 'success', 3000);
       } else {
         const data = await res.json();
-        alert(`Failed to ${status} leave request: ${data.error || 'Unknown error'}`);
+        showToast(`Failed to ${status} leave request: ${data.error || 'Unknown error'}`, 'error', 5000);
       }
     } catch (error) {
-      alert(`Network error: ${error.message}`);
+      showToast(`Network error: ${error.message}`, 'error', 5000);
+    }
+  };
+
+  /* ================= LOAD APPROVED LEAVES ================= */
+  const loadApprovedLeaves = async () => {
+    try {
+      const token = localStorage.getItem("adminToken");
+
+      const res = await fetch("/api/admin/leave-requests", {
+        headers: {
+          Authorization: `Bearer ${token}`
+        }
+      });
+
+      if (res.ok) {
+        const data = await res.json();
+        const approvedLeavesData = {};
+
+        // Group approved leaves by user and calculate total leave days
+        data.forEach(leave => {
+          if (leave.status === 'approve' || leave.status === 'approved') {
+            if (!approvedLeavesData[leave.userId]) {
+              approvedLeavesData[leave.userId] = 0;
+            }
+
+            // Calculate leave duration more accurately
+            const startDate = new Date(leave.startDate);
+            const endDate = new Date(leave.endDate);
+
+            let leaveDays = 0;
+
+            if (leave.leaveDuration === 'full') {
+              // For full day leaves, calculate the number of days in the date range
+              const daysDiff = Math.ceil((endDate - startDate) / (1000 * 60 * 60 * 24)) + 1;
+              leaveDays = daysDiff;
+            } else if (leave.leaveDuration === 'firstHalf' || leave.leaveDuration === 'secondHalf') {
+              // For half day leaves, calculate 0.5 days for each day in the date range
+              const daysDiff = Math.ceil((endDate - startDate) / (1000 * 60 * 60 * 24)) + 1;
+              leaveDays = 0.5 * daysDiff;
+            }
+
+            approvedLeavesData[leave.userId] += leaveDays;
+          }
+        });
+
+        setApprovedLeaves(approvedLeavesData);
+      }
+    } catch (error) {
+      console.error("Error loading approved leaves:", error);
+    }
+  };
+
+  /* ================= GET EMPLOYEE WISE LEAVE DATA ================= */
+  const getEmployeeWiseLeaveData = async () => {
+    try {
+      const token = localStorage.getItem("adminToken");
+
+      const res = await fetch("/api/admin/leave-requests", {
+        headers: {
+          Authorization: `Bearer ${token}`
+        }
+      });
+
+      if (res.ok) {
+        const data = await res.json();
+        const employeeLeaveData = {};
+
+        // Group approved leaves by user
+        data.forEach(leave => {
+          if (leave.status === 'approve' || leave.status === 'approved') {
+            if (!employeeLeaveData[leave.userId]) {
+              employeeLeaveData[leave.userId] = [];
+            }
+
+            const startDate = new Date(leave.startDate);
+            const endDate = new Date(leave.endDate);
+
+            if (leave.leaveDuration === 'full') {
+              // For full day leaves, add each date in the range
+              const daysDiff = Math.ceil((endDate - startDate) / (1000 * 60 * 60 * 24));
+              for (let i = 0; i <= daysDiff; i++) {
+                const currentDate = new Date(startDate);
+                currentDate.setDate(startDate.getDate() + i);
+                const formattedDate = `${currentDate.getFullYear()}-${String(currentDate.getMonth() + 1).padStart(2, '0')}-${String(currentDate.getDate()).padStart(2, '0')}`;
+                employeeLeaveData[leave.userId].push({
+                  date: formattedDate,
+                  type: 'Full Day',
+                  leaveType: leave.leaveType || 'Leave',
+                  originalData: leave
+                });
+              }
+            } else if (leave.leaveDuration === 'firstHalf' || leave.leaveDuration === 'secondHalf') {
+              // For half day leaves, add each date in the range (not just single date)
+              const daysDiff = Math.ceil((endDate - startDate) / (1000 * 60 * 60 * 24));
+              for (let i = 0; i <= daysDiff; i++) {
+                const currentDate = new Date(startDate);
+                currentDate.setDate(startDate.getDate() + i);
+                const formattedDate = `${currentDate.getFullYear()}-${String(currentDate.getMonth() + 1).padStart(2, '0')}-${String(currentDate.getDate()).padStart(2, '0')}`;
+                employeeLeaveData[leave.userId].push({
+                  date: formattedDate,
+                  type: leave.leaveDuration === 'firstHalf' ? 'First Half' : 'Second Half',
+                  leaveType: leave.leaveType || 'Leave',
+                  originalData: leave
+                });
+              }
+            }
+          }
+        });
+
+        // Sort leaves by date for each employee
+        Object.keys(employeeLeaveData).forEach(userId => {
+          employeeLeaveData[userId].sort((a, b) => new Date(a.date) - new Date(b.date));
+        });
+
+        setDetailedLeaveInfo(employeeLeaveData);
+      }
+    } catch (error) {
+      console.error("Error getting employee wise leave data:", error);
+    }
+  };
+
+  /* ================= LOAD EMPLOYEES SALARY DATA ================= */
+  const loadEmployeesSalaryData = async () => {
+    setLoadingSalaryData(true);
+    try {
+      const token = localStorage.getItem("adminToken");
+
+      const res = await fetch("/api/admin/employees-salary", {
+        headers: {
+          Authorization: `Bearer ${token}`
+        }
+      });
+
+      if (res.ok) {
+        const data = await res.json();
+        setEmployeesSalaryData(Array.isArray(data) ? data : []);
+      } else {
+        setError("Failed to load employees salary data");
+      }
+    } catch (error) {
+      setError("Server error loading employees salary data");
+    } finally {
+      setLoadingSalaryData(false);
+    }
+  };
+
+  /* ================= UPDATE EMPLOYEE SALARY ================= */
+  const updateEmployeeSalary = async (employeeId, salary) => {
+    try {
+      const token = localStorage.getItem("adminToken");
+
+      const res = await fetch("/api/admin/employees-salary", {
+        method: "PUT",
+        headers: {
+          Authorization: `Bearer ${token}`,
+          "Content-Type": "application/json"
+        },
+        body: JSON.stringify({
+          employeeId,
+          salary
+        })
+      });
+
+      if (res.ok) {
+        // Refresh salary data
+        loadEmployeesSalaryData();
+        setEditingSalary(null);
+        showToast("Salary updated successfully", 'success', 3000);
+      } else {
+        const data = await res.json();
+        showToast(`Failed to update salary: ${data.error || 'Unknown error'}`, 'error', 5000);
+      }
+    } catch (error) {
+      showToast(`Network error: ${error.message}`, 'error', 5000);
     }
   };
 
@@ -120,6 +317,9 @@ export default function AdminDashboard() {
           groupedData[record.UserId].records.push(record);
         });
         setAllEmployeesData(groupedData);
+
+        // Load employee wise leave data
+        await getEmployeeWiseLeaveData();
       } else {
         setError("Failed to load all employees data");
       }
@@ -195,12 +395,21 @@ export default function AdminDashboard() {
     loadAutoClockOutStatus();
   }, []);
 
-  // Load all employees data when view mode changes to all-employees
+  // Load all employees data when view mode changes to all-employees, leave-management, salary-report, final-report, or salary-management
   useEffect(() => {
     if (viewMode === "all-employees") {
       loadAllEmployeesAttendance();
     } else if (viewMode === "leave-management") {
       loadLeaveRequests();
+    } else if (viewMode === "salary-report") {
+      loadAllEmployeesAttendance();
+      loadApprovedLeaves();
+      loadEmployeesSalaryData(); // Load salary data for salary report
+    } else if (viewMode === "final-report") {
+      loadAllEmployeesAttendance();
+      loadApprovedLeaves();
+    } else if (viewMode === "salary-management") {
+      loadEmployeesSalaryData();
     }
   }, [viewMode]);
 
@@ -331,10 +540,10 @@ export default function AdminDashboard() {
   /* ================= FILTER ALL EMPLOYEES DATA ================= */
   const getFilteredAllEmployeesData = () => {
     let filteredData = {};
-    
+
     Object.entries(allEmployeesData).forEach(([employeeId, employeeData]) => {
       let filteredRecords = [...employeeData.records];
-      
+
       // Apply filters based on the selected filter type
       switch (allEmployeesFilter) {
         case "pending":
@@ -360,7 +569,7 @@ export default function AdminDashboard() {
           // "all" - no filtering
           break;
       }
-      
+
       // Only include employee if they have filtered records
       if (filteredRecords.length > 0) {
         filteredData[employeeId] = {
@@ -369,7 +578,7 @@ export default function AdminDashboard() {
         };
       }
     });
-    
+
     return filteredData;
   };
 
@@ -523,6 +732,89 @@ export default function AdminDashboard() {
             )}
           </div>
 
+          {/* Salary Management Option */}
+          <div
+            onClick={() => {
+              setViewMode("salary-management");
+              setSelectedEmployee(null);
+            }}
+            className={`p-3 rounded mb-2 cursor-pointer transition flex items-center
+              ${viewMode === "salary-management"
+                ? "bg-white text-blue-900"
+                : "hover:bg-blue-600"}
+              ${isSidebarCollapsed ? 'text-center' : ''}
+            `}
+            title={isSidebarCollapsed ? 'Salary Management' : ''}
+          >
+            {isSidebarCollapsed ? (
+              <span className="text-lg font-bold">
+                💵
+              </span>
+            ) : (
+              <div className="flex items-center space-x-3">
+                <span className="text-lg">💵</span>
+                <span>Salary Management</span>
+              </div>
+            )}
+          </div>
+
+          {/* Salary Report Option */}
+          <div
+            onClick={() => {
+              setViewMode("salary-report");
+              setSelectedEmployee(null);
+            }}
+            className={`p-3 rounded mb-2 cursor-pointer transition flex items-center
+              ${viewMode === "salary-report"
+                ? "bg-white text-blue-900"
+                : "hover:bg-blue-600"}
+              ${isSidebarCollapsed ? 'text-center' : ''}
+            `}
+            title={isSidebarCollapsed ? 'Salary Report' : ''}
+          >
+            {isSidebarCollapsed ? (
+              <span className="text-lg font-bold">
+                💰
+              </span>
+            ) : (
+              <div className="flex items-center space-x-3">
+                <span className="text-lg">💰</span>
+                <span>Salary Report</span>
+              </div>
+            )}
+          </div>
+
+          {/* Divider */}
+          {!isSidebarCollapsed && (
+            <div className="border-t border-blue-700 my-2"></div>
+          )}
+
+          {/* Final Report */}
+          <div
+            onClick={() => {
+              setViewMode("final-report");
+              setSelectedEmployee(null);
+            }}
+            className={`p-3 rounded mb-2 cursor-pointer transition flex items-center
+              ${viewMode === "final-report"
+                ? "bg-white text-blue-900"
+                : "hover:bg-blue-600"}
+              ${isSidebarCollapsed ? 'text-center' : ''}
+            `}
+            title={isSidebarCollapsed ? 'Final Report' : ''}
+          >
+            {isSidebarCollapsed ? (
+              <span className="text-lg font-bold">
+                📊
+              </span>
+            ) : (
+              <div className="flex items-center space-x-3">
+                <span className="text-lg">📊</span>
+                <span>Final Report</span>
+              </div>
+            )}
+          </div>
+
           {/* Divider */}
           {!isSidebarCollapsed && (
             <div className="border-t border-blue-700 my-2"></div>
@@ -595,7 +887,7 @@ export default function AdminDashboard() {
         )}
 
         <div className={`${isSidebarOpen ? 'ml-0' : 'ml-0'}`}>
-          <div className={`flex items-center justify-between mb-4 ${viewMode === "leave-management" ? 'hidden' : 'block'}`} >
+          <div className={`flex items-center justify-between mb-4 ${(viewMode === "leave-management" || viewMode === "salary-report" || viewMode === "final-report" || viewMode === "salary-management") ? 'hidden' : 'block'}`} >
             <h1 className="text-2xl font-bold">
               Admin Attendance Dashboard
             </h1>
@@ -924,7 +1216,7 @@ export default function AdminDashboard() {
                     <div>
                       <p className="text-gray-600 text-sm font-medium">Pending</p>
                       <p className="text-3xl font-bold text-gray-900 mt-2">
-                        {Object.values(allEmployeesData).reduce((sum, { records }) => 
+                        {Object.values(allEmployeesData).reduce((sum, { records }) =>
                           sum + records.filter(r => r.IsApproved === 0 || r.IsApproved === false).length, 0
                         )}
                       </p>
@@ -942,7 +1234,7 @@ export default function AdminDashboard() {
                     <div>
                       <p className="text-gray-600 text-sm font-medium">Today</p>
                       <p className="text-3xl font-bold text-gray-900 mt-2">
-                        {Object.values(allEmployeesData).reduce((sum, { records }) => 
+                        {Object.values(allEmployeesData).reduce((sum, { records }) =>
                           sum + records.filter(r => {
                             const today = new Date().toDateString();
                             const recordDate = new Date(r.ClockInTime).toDateString();
@@ -970,7 +1262,7 @@ export default function AdminDashboard() {
                         {Object.values(getFilteredAllEmployeesData()).reduce((sum, { records }) => sum + records.length, 0)} total records
                       </p>
                     </div>
-                    
+
                     {/* Filter Dropdown */}
                     <div className="flex items-center space-x-3">
                       <select
@@ -985,7 +1277,7 @@ export default function AdminDashboard() {
                         <option value="early">Early Departures</option>
                         <option value="today">Today Only</option>
                       </select>
-                      
+
                       {allEmployeesFilter !== "all" && (
                         <button
                           onClick={() => setAllEmployeesFilter("all")}
@@ -997,7 +1289,7 @@ export default function AdminDashboard() {
                     </div>
                   </div>
                 </div>
-                
+
                 <div className="overflow-x-auto">
                   <div className="min-w-full">
                     <table className="min-w-full divide-y divide-gray-200">
@@ -1049,7 +1341,7 @@ export default function AdminDashboard() {
                                   </div>
                                 )}
                               </td>
-                              
+
                               <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
                                 <div>
                                   {new Date(record.ClockInTime).toLocaleDateString('en-IN', {
@@ -1064,7 +1356,7 @@ export default function AdminDashboard() {
                                   })}
                                 </div>
                               </td>
-                              
+
                               <td className="px-6 py-4 whitespace-nowrap">
                                 <div className="flex items-center">
                                   <div className="w-2 h-2 bg-green-500 rounded-full mr-2"></div>
@@ -1082,17 +1374,17 @@ export default function AdminDashboard() {
                                   </div>
                                 )}
                               </td>
-                              
+
                               <td className="px-6 py-4 whitespace-nowrap">
                                 <div className="flex items-center">
                                   <div className={`w-2 h-2 rounded-full mr-2 ${record.ClockOutTime ? 'bg-red-500' : 'bg-gray-300'}`}></div>
                                   <span className="text-sm text-gray-900">
                                     {record.ClockOutTime
                                       ? new Date(record.ClockOutTime).toLocaleTimeString('en-IN', {
-                                          hour: '2-digit',
-                                          minute: '2-digit',
-                                          hour12: true
-                                        })
+                                        hour: '2-digit',
+                                        minute: '2-digit',
+                                        hour12: true
+                                      })
                                       : "Not out"}
                                   </span>
                                 </div>
@@ -1102,13 +1394,13 @@ export default function AdminDashboard() {
                                   </div>
                                 )}
                               </td>
-                              
+
                               <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
                                 <div className="max-w-xs truncate" title={record.ClockInLocation || 'No location'}>
                                   {record.ClockInLocation || 'No location'}
                                 </div>
                               </td>
-                              
+
                               <td className="px-6 py-4 whitespace-nowrap">
                                 <div className="flex flex-col space-y-1">
                                   {record.ApprovalStatus !== "Approved" && (
@@ -1119,7 +1411,7 @@ export default function AdminDashboard() {
                                   )}
                                 </div>
                               </td>
-                              
+
                               <td className="px-6 py-4 whitespace-nowrap text-center">
                                 <div className="flex items-center justify-center space-x-1">
                                   {record.SelfieIn && (
@@ -1140,7 +1432,7 @@ export default function AdminDashboard() {
                                   )}
                                 </div>
                               </td>
-                              
+
                               <td className="px-6 py-4 whitespace-nowrap text-center">
                                 {record.ApprovalStatus !== "Approved" ? (
                                   <button
@@ -1169,7 +1461,7 @@ export default function AdminDashboard() {
             <>
               <div className="flex items-center justify-between mb-4">
                 <h2 className="text-2xl font-bold">Leave Management</h2>
-                
+
                 {/* Leave Filter */}
                 <div className="flex items-center gap-2">
                   <label className="text-sm font-medium text-gray-700">Filter:</label>
@@ -1208,6 +1500,7 @@ export default function AdminDashboard() {
                       if (!groupedRequests[request.userId]) {
                         groupedRequests[request.userId] = {
                           userName: request.userName || `User ${request.userId}`,
+                          actionBy: request.actionBy,
                           requests: []
                         };
                       }
@@ -1244,25 +1537,25 @@ export default function AdminDashboard() {
                           <table className="w-full">
                             <thead className="bg-gray-50">
                               <tr>
-                                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                                  Leave Type
+                                <th className="px-3 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                                  Leave
                                 </th>
-                                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                                <th className="px-3 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                                   Duration
                                 </th>
-                                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                                <th className="px-3 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                                   Period
                                 </th>
-                                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                                <th className="px-3 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                                   Reason
                                 </th>
-                                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                                  Applied On
+                                <th className="px-3 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                                  Applied
                                 </th>
-                                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                                <th className="px-3 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                                   Status
                                 </th>
-                                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                                <th className="px-3 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                                   Actions
                                 </th>
                               </tr>
@@ -1277,9 +1570,9 @@ export default function AdminDashboard() {
                                   </td>
                                   <td className="px-6 py-4 whitespace-nowrap">
                                     <span className="text-sm text-gray-900">
-                                      {request.leaveDuration === 'full' ? 'Full Day' : 
-                                       request.leaveDuration === 'firstHalf' ? 'First Half' : 
-                                       'Second Half'}
+                                      {request.leaveDuration === 'full' ? 'Full Day' :
+                                        request.leaveDuration === 'firstHalf' ? 'First Half' :
+                                          'Second Half'}
                                     </span>
                                   </td>
                                   <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
@@ -1294,13 +1587,14 @@ export default function AdminDashboard() {
                                     {new Date(request.createdAt).toLocaleDateString()}
                                   </td>
                                   <td className="px-6 py-4 whitespace-nowrap">
-                                    <span className={`px-2 inline-flex text-xs leading-5 font-semibold rounded-full ${
-                                      request.status === 'approved' 
-                                        ? 'bg-green-100 text-green-800'
-                                        : request.status === 'rejected'
+                                    <span className={`px-2 inline-flex text-xs leading-5 font-semibold rounded-full ${request.status === 'approve'
+                                      ? 'bg-green-100 text-green-800'
+                                      : request.status === 'reject'
                                         ? 'bg-red-100 text-red-800'
-                                        : 'bg-yellow-100 text-yellow-800'
-                                    }`}>
+                                        : request.status === 'cancelled'
+                                          ? 'bg-gray-100 text-gray-800'
+                                          : 'bg-yellow-100 text-yellow-800'
+                                      }`}>
                                       {request.status || 'pending'}
                                     </span>
                                   </td>
@@ -1320,14 +1614,25 @@ export default function AdminDashboard() {
                                           >
                                             Reject
                                           </button>
+                                          <button
+                                            onClick={() => updateLeaveStatus(request.id, 'cancel')}
+                                            className="px-3 py-1 bg-gray-600 hover:bg-gray-700 text-white text-xs font-medium rounded transition-colors"
+                                          >
+                                            Cancel
+                                          </button>
                                         </>
                                       )}
-                                      <button
-                                        onClick={() => updateLeaveStatus(request.id, 'cancel')}
-                                        className="px-3 py-1 bg-gray-600 hover:bg-gray-700 text-white text-xs font-medium rounded transition-colors"
-                                      >
-                                        Cancel
-                                      </button>
+                                      {request.status === 'approve' && (
+                                        <button
+                                          onClick={() => updateLeaveStatus(request.id, 'cancel')}
+                                          className="px-3 py-1 bg-gray-600 hover:bg-gray-700 text-white text-xs font-medium rounded transition-colors"
+                                        >
+                                          Cancel
+                                        </button>
+                                      )}
+                                      {request.status === 'cancelled' && (
+                                        <span className="text-xs text-gray-500 font-medium">Cancelled by {request.actionBy === 'employee' ? 'Employee' : 'Admin'}</span>
+                                      )}
                                     </div>
                                   </td>
                                 </tr>
@@ -1340,6 +1645,606 @@ export default function AdminDashboard() {
                   })()}
                 </div>
               )}
+            </>
+          )}
+
+          {/* ================= SALARY REPORT VIEW ================= */}
+          {viewMode === "salary-report" && (
+            <>
+              <div className="flex items-center justify-between mb-4">
+                <h2 className="text-2xl font-bold">Salary Report</h2>
+
+                {/* Salary Report Filter */}
+                <div className="flex items-center gap-2">
+                  <label className="text-sm font-medium text-gray-700">Filter:</label>
+                  <select
+                    value={allEmployeesFilter}
+                    onChange={(e) => setAllEmployeesFilter(e.target.value)}
+                    className="px-3 py-2 text-sm border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-blue-500"
+                  >
+                    <option value="all">All Employees</option>
+                    <option value="pending">Pending Approval</option>
+                    <option value="approved">Approved</option>
+                    <option value="late">Late Arrivals</option>
+                    <option value="early">Early Departures</option>
+                    <option value="today">Today Only</option>
+                  </select>
+                </div>
+              </div>
+
+              {/* Salary Summary Cards */}
+              {!loadingAllData && !loadingSalaryData && Object.keys(getFilteredAllEmployeesData()).length > 0 && (
+                <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-6">
+                  <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
+                    <div className="flex items-center justify-between">
+                      <div>
+                        <p className="text-gray-600 text-sm font-medium">Total Employees</p>
+                        <p className="text-3xl font-bold text-gray-900 mt-2">{Object.keys(getFilteredAllEmployeesData()).length}</p>
+                      </div>
+                      <div className="bg-blue-100 rounded-lg p-3">
+                        <svg className="w-6 h-6 text-blue-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4.354a4 4 0 110 5.292M15 21H3v-1a6 6 0 0112 0v1zm0 0h6v-1a6 6 0 00-9-5.197M13 7a4 4 0 11-8 0 4 4 0 018 0z" />
+                        </svg>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
+                    <div className="flex items-center justify-between">
+                      <div>
+                        <p className="text-gray-600 text-sm font-medium">Total Basic Salary</p>
+                        <p className="text-3xl font-bold text-gray-900 mt-2">
+                          ₹{Object.entries(getFilteredAllEmployeesData()).reduce((sum, [employeeId]) => {
+                            const empSalary = employeesSalaryData.find(emp => emp.id === parseInt(employeeId));
+                            return sum + (empSalary?.salary || 0);
+                          }, 0).toLocaleString()}
+                        </p>
+                      </div>
+                      <div className="bg-green-100 rounded-lg p-3">
+                        <svg className="w-6 h-6 text-green-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1" />
+                        </svg>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
+                    <div className="flex items-center justify-between">
+                      <div>
+                        <p className="text-gray-600 text-sm font-medium">Total Deductions</p>
+                        <p className="text-3xl font-bold text-red-600 mt-2">
+                          -₹{Object.entries(getFilteredAllEmployeesData()).reduce((sum, [employeeId]) => {
+                            const empSalary = employeesSalaryData.find(emp => emp.id === parseInt(employeeId));
+                            if (!empSalary?.salary) return sum; // Skip employees without salary data
+                            
+                            const monthlySalary = empSalary.salary;
+                            const currentMonthDays = getCurrentMonthDays();
+                            const dailyWage = monthlySalary / currentMonthDays;
+                            const approvedLeaveDays = approvedLeaves[employeeId] || 0;
+                            return sum + Math.round(approvedLeaveDays * dailyWage * 100) / 100;
+                          }, 0).toLocaleString()}
+                        </p>
+                      </div>
+                      <div className="bg-red-100 rounded-lg p-3">
+                        <svg className="w-6 h-6 text-red-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                        </svg>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
+                    <div className="flex items-center justify-between">
+                      <div>
+                        <p className="text-gray-600 text-sm font-medium">Net Salary to Pay</p>
+                        <p className="text-3xl font-bold text-purple-600 mt-2">
+                          ₹{Object.entries(getFilteredAllEmployeesData()).reduce((sum, [employeeId, employeeData]) => {
+                            const empSalary = employeesSalaryData.find(emp => emp.id === parseInt(employeeId));
+                            if (!empSalary?.salary) return sum; // Skip employees without salary data
+                            
+                            const monthlySalary = empSalary.salary;
+                            const currentMonthDays = getCurrentMonthDays();
+                            const dailyWage = monthlySalary / currentMonthDays;
+                            const approvedDays = employeeData.records.filter(r => r.IsApproved === 1 || r.IsApproved === true).length;
+                            const approvedLeaveDays = approvedLeaves[employeeId] || 0;
+                            const totalWorkingDays = currentMonthDays;
+                            const workingDaysAfterLeave = totalWorkingDays - approvedLeaveDays;
+                            const actualWorkingDays = Math.min(approvedDays, workingDaysAfterLeave);
+                            const calculatedSalary = Math.round(actualWorkingDays * dailyWage * 100) / 100;
+                            return sum + calculatedSalary;
+                          }, 0).toLocaleString()}
+                        </p>
+                      </div>
+                      <div className="bg-purple-100 rounded-lg p-3">
+                        <svg className="w-6 h-6 text-purple-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 9V7a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2m2 4h10a2 2 0 002-2v-6a2 2 0 00-2-2H9a2 2 0 00-2 2v6a2 2 0 002 2zm7-5a2 2 0 11-4 0 2 2 0 014 0z" />
+                        </svg>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {loadingAllData || loadingSalaryData ? (
+                <div className="text-center py-8">
+                  <p className="text-blue-600">Loading salary data...</p>
+                </div>
+              ) : Object.keys(getFilteredAllEmployeesData()).length === 0 ? (
+                <div className="text-center py-8">
+                  <p className="text-gray-500">No salary data found</p>
+                </div>
+              ) : (
+                <div className="space-y-6">
+                  {Object.entries(getFilteredAllEmployeesData()).map(([employeeId, employeeData]) => (
+                    <div key={employeeId} className="bg-white rounded-lg shadow-md overflow-hidden">
+                      {/* Employee Header */}
+                      <div className="bg-green-50 px-6 py-4 border-b">
+                        <div className="flex items-center justify-between">
+                          <h3 className="text-lg font-semibold text-gray-900">
+                            👤 {employeeData.employee.name}
+                          </h3>
+                          <div className="flex items-center gap-3">
+                            <button
+                              onClick={() => {
+                                setSelectedEmployeeForLeaves({
+                                  id: employeeId,
+                                  name: employeeData.employee.name,
+                                  data: employeeData
+                                });
+                                setShowLeaveModal(true);
+                              }}
+                              className="px-4 py-2 bg-purple-600 hover:bg-purple-700 text-white text-sm font-medium rounded-lg transition-colors flex items-center gap-2"
+                            >
+                              <span>📋</span>
+                              Leave View
+                            </button>
+                            <div className="flex items-center gap-4 text-sm">
+                              <span className="text-gray-600">
+                                Total Days: {employeeData.records.length}
+                              </span>
+                              <span className="text-green-600">
+                                Approved: {employeeData.records.filter(r => r.IsApproved === 1 || r.IsApproved === true).length}
+                              </span>
+                              <span className="text-yellow-600">
+                                Pending: {employeeData.records.filter(r => r.IsApproved === 0 || r.IsApproved === false).length}
+                              </span>
+                              <span className="text-blue-600 font-semibold">
+                                Working Days: {employeeData.records.filter(r => r.IsApproved === 1 || r.IsApproved === true).length}
+                              </span>
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* Salary Calculation Table */}
+                      <div className="p-6">
+                        <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-4">
+                          <div className="bg-blue-50 rounded-lg p-4">
+                            <h4 className="font-semibold text-blue-900 mb-2">Basic Salary</h4>
+                            <p className="text-2xl font-bold text-blue-600">
+                              ₹{employeesSalaryData.find(emp => emp.id === parseInt(employeeId))?.salary?.toLocaleString() || '20,000'}
+                            </p>
+                            <p className="text-sm text-gray-600">Per month</p>
+                          </div>
+                          <div className="bg-green-50 rounded-lg p-4">
+                            <h4 className="font-semibold text-green-900 mb-2">Daily Wage</h4>
+                            <p className="text-2xl font-bold text-green-600">
+                              {employeesSalaryData.find(emp => emp.id === parseInt(employeeId))?.salary
+                                ? `₹${(employeesSalaryData.find(emp => emp.id === parseInt(employeeId)).salary / getCurrentMonthDays()).toFixed(2)}`
+                                : '-'
+                              }
+                            </p>
+                            <p className="text-sm text-gray-600">Based on {getCurrentMonthDays()} days in current month</p>
+                          </div>
+                          <div className="bg-purple-50 rounded-lg p-4">
+                            <h4 className="font-semibold text-purple-900 mb-2">Calculated Salary</h4>
+                            <p className="text-2xl font-bold text-purple-600">
+                              {(() => {
+                                const empSalary = employeesSalaryData.find(emp => emp.id === parseInt(employeeId));
+                                
+                                // Only calculate if employee has salary data
+                                if (!empSalary?.salary) {
+                                  return '-';
+                                }
+                                
+                                const monthlySalary = empSalary.salary;
+                                const currentMonthDays = getCurrentMonthDays();
+                                const dailyWage = monthlySalary / currentMonthDays;
+                                const approvedDays = employeeData.records.filter(r => r.IsApproved === 1 || r.IsApproved === true).length;
+                                const approvedLeaveDays = approvedLeaves[employeeId] || 0;
+
+                                // Calculate total working days in month (actual days in current month)
+                                const totalWorkingDays = currentMonthDays;
+
+                                // Calculate actual working days after leave deduction
+                                const workingDaysAfterLeave = totalWorkingDays - approvedLeaveDays;
+
+                                // Salary should be based on actual working days or approved attendance days, whichever is lower
+                                const actualWorkingDays = Math.min(approvedDays, workingDaysAfterLeave);
+                                const calculatedSalary = Math.round(actualWorkingDays * dailyWage * 100) / 100;
+
+                                return calculatedSalary.toLocaleString();
+                              })()}
+                            </p>
+                            <p className="text-sm text-gray-600">
+                              {(() => {
+                                const empSalary = employeesSalaryData.find(emp => emp.id === parseInt(employeeId));
+                                
+                                // Only show calculation details if employee has salary data
+                                if (!empSalary?.salary) {
+                                  return 'Add salary data to calculate';
+                                }
+                                
+                                const monthlySalary = empSalary.salary;
+                                const currentMonthDays = getCurrentMonthDays();
+                                const dailyWage = monthlySalary / currentMonthDays;
+                                const approvedDays = employeeData.records.filter(r => r.IsApproved === 1 || r.IsApproved === true).length;
+                                const approvedLeaveDays = approvedLeaves[employeeId] || 0;
+                                const totalWorkingDays = currentMonthDays;
+                                const workingDaysAfterLeave = totalWorkingDays - approvedLeaveDays;
+                                const actualWorkingDays = Math.min(approvedDays, workingDaysAfterLeave);
+                                const leaveDeduction = approvedLeaveDays * dailyWage;
+                                return `${actualWorkingDays} working days × ₹${dailyWage.toFixed(2)}/day${approvedLeaveDays > 0 ? ` (${approvedLeaveDays} leave days deducted: -₹${leaveDeduction.toFixed(2)})` : ''}`;
+                              })()}
+                            </p>
+                          </div>
+                        </div>
+
+                        {/* Attendance Summary Table */}
+                        <div className="overflow-x-auto">
+                          <table className="w-full">
+                            <thead className="bg-gray-50">
+                              <tr>
+                                <th className="px-3 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                                  Date
+                                </th>
+                                <th className="px-3 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                                  Clock In
+                                </th>
+                                <th className="px-3 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                                  Clock Out
+                                </th>
+                                <th className="px-3 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                                  Status
+                                </th>
+                                <th className="px-3 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                                  Late
+                                </th>
+                                <th className="px-3 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                                  Early
+                                </th>
+                              </tr>
+                            </thead>
+                            <tbody className="bg-white divide-y divide-gray-200">
+                              {employeeData.records.slice(0, 10).map((record) => (
+                                <tr key={record.Id} className="hover:bg-gray-50">
+                                  <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+                                    {new Date(record.ClockInTime).toLocaleDateString()}
+                                  </td>
+                                  <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+                                    {new Date(record.ClockInTime).toLocaleTimeString('en-IN', {
+                                      hour: '2-digit',
+                                      minute: '2-digit',
+                                      hour12: true
+                                    })}
+                                  </td>
+                                  <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+                                    {record.ClockOutTime
+                                      ? new Date(record.ClockOutTime).toLocaleTimeString('en-IN', {
+                                        hour: '2-digit',
+                                        minute: '2-digit',
+                                        hour12: true
+                                      })
+                                      : "Not clocked out"}
+                                  </td>
+                                  <td className="px-6 py-4 whitespace-nowrap">
+                                    <span className={`px-2 inline-flex text-xs leading-5 font-semibold rounded-full ${record.IsApproved === 1 || record.IsApproved === true
+                                      ? 'bg-green-100 text-green-800'
+                                      : 'bg-yellow-100 text-yellow-800'
+                                      }`}>
+                                      {record.IsApproved === 1 || record.IsApproved === true ? 'Approved' : 'Pending'}
+                                    </span>
+                                  </td>
+                                  <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+                                    {record.IsLate === 1 || record.IsLate === true ? (
+                                      <span className="text-red-600">Yes</span>
+                                    ) : (
+                                      <span className="text-green-600">No</span>
+                                    )}
+                                  </td>
+                                  <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+                                    {record.EarlyClockOut === 1 || record.EarlyClockOut === true ? (
+                                      <span className="text-red-600">Yes</span>
+                                    ) : (
+                                      <span className="text-green-600">No</span>
+                                    )}
+                                  </td>
+                                </tr>
+                              ))}
+                            </tbody>
+                          </table>
+                          {employeeData.records.length > 10 && (
+                            <div className="text-center py-3 text-sm text-gray-500">
+                              Showing 10 of {employeeData.records.length} records
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </>
+          )}
+
+          {/* ================= SALARY MANAGEMENT VIEW ================= */}
+          {viewMode === "salary-management" && (
+            <>
+              <div className="flex items-center justify-between mb-4">
+                <h2 className="text-2xl font-bold">Salary Management</h2>
+              </div>
+
+              {loadingSalaryData ? (
+                <div className="text-center py-8">
+                  <p className="text-blue-600">Loading salary data...</p>
+                </div>
+              ) : employeesSalaryData.length === 0 ? (
+                <div className="text-center py-8">
+                  <p className="text-gray-500">No employees found</p>
+                </div>
+              ) : (
+                <div className="bg-white rounded-lg shadow-md overflow-hidden">
+                  <div className="overflow-x-auto">
+                    <table className="w-full">
+                      <thead className="bg-gray-50">
+                        <tr>
+                          <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                            Employee Name
+                          </th>
+                          <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                            Username
+                          </th>
+                          <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                            Current Salary
+                          </th>
+                          <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                            Last Updated
+                          </th>
+                          <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                            Updated By
+                          </th>
+                          <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                            Actions
+                          </th>
+                        </tr>
+                      </thead>
+                      <tbody className="bg-white divide-y divide-gray-200">
+                        {employeesSalaryData.map((employee) => (
+                          <tr key={employee.id} className="hover:bg-gray-50">
+                            <td className="px-6 py-4 whitespace-nowrap">
+                              <div className="text-sm font-medium text-gray-900">
+                                {employee.name}
+                              </div>
+                            </td>
+                            <td className="px-6 py-4 whitespace-nowrap">
+                              <div className="text-sm text-gray-900">
+                                {employee.username}
+                              </div>
+                            </td>
+                            <td className="px-6 py-4 whitespace-nowrap">
+                              {editingSalary === employee.id ? (
+                                <input
+                                  type="number"
+                                  defaultValue={employee.salary}
+                                  className="w-32 px-2 py-1 border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-blue-500"
+                                  placeholder="Enter salary"
+                                  id={`salary-${employee.id}`}
+                                />
+                              ) : (
+                                <div className="text-sm text-gray-900">
+                                  ₹{employee.salary ? employee.salary.toLocaleString() : '0'}
+                                </div>
+                              )}
+                            </td>
+                            <td className="px-6 py-4 whitespace-nowrap">
+                              <div className="text-sm text-gray-900">
+                                {employee.salaryUpdatedAt
+                                  ? new Date(employee.salaryUpdatedAt).toLocaleDateString()
+                                  : 'Never'
+                                }
+                              </div>
+                            </td>
+                            <td className="px-6 py-4 whitespace-nowrap">
+                              <div className="text-sm text-gray-900">
+                                {employee.updatedBy || 'System'}
+                              </div>
+                            </td>
+                            <td className="px-6 py-4 whitespace-nowrap">
+                              {editingSalary === employee.id ? (
+                                <div className="flex items-center gap-2">
+                                  <button
+                                    onClick={() => {
+                                      const salaryInput = document.getElementById(`salary-${employee.id}`);
+                                      const salary = parseFloat(salaryInput.value) || 0;
+
+                                      if (salary < 0) {
+                                        showToast('Salary cannot be negative', 'error', 3000);
+                                        return;
+                                      }
+
+                                      updateEmployeeSalary(employee.id, salary);
+                                    }}
+                                    className="px-3 py-1 bg-green-600 hover:bg-green-700 text-white text-xs font-medium rounded transition-colors"
+                                  >
+                                    Save
+                                  </button>
+                                  <button
+                                    onClick={() => setEditingSalary(null)}
+                                    className="px-3 py-1 bg-gray-600 hover:bg-gray-700 text-white text-xs font-medium rounded transition-colors"
+                                  >
+                                    Cancel
+                                  </button>
+                                </div>
+                              ) : (
+                                <button
+                                  onClick={() => setEditingSalary(employee.id)}
+                                  className="px-3 py-1 bg-blue-600 hover:bg-blue-700 text-white text-xs font-medium rounded transition-colors"
+                                >
+                                  Edit
+                                </button>
+                              )}
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              )}
+            </>
+          )}
+
+          {/* ================= FINAL REPORT VIEW ================= */}
+          {viewMode === "final-report" && (
+            <>
+              <div className="flex items-center justify-between mb-4">
+                <h2 className="text-2xl font-bold">Final Report</h2>
+              </div>
+
+              <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
+                <div className="mb-6">
+                  <label className="block text-sm font-medium text-gray-700 mb-2">Select Month</label>
+                  <input
+                    type="month"
+                    value={selectedMonth}
+                    onChange={(e) => setSelectedMonth(e.target.value)}
+                    className="px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                  />
+                </div>
+
+                {selectedMonth && (
+                  <div className="overflow-x-auto">
+                    <table className="min-w-full divide-y divide-gray-200">
+                      <thead className="bg-gray-50">
+                        <tr>
+                          <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Employee</th>
+                          {(() => {
+                            const [year, month] = selectedMonth.split('-');
+                            const daysInMonth = getDaysInMonth(parseInt(year), parseInt(month) - 1);
+                            return Array.from({ length: daysInMonth }, (_, i) => (
+                              <th key={i} className="px-2 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider">
+                                {i + 1}
+                              </th>
+                            ));
+                          })()}
+                        </tr>
+                      </thead>
+                      <tbody className="bg-white divide-y divide-gray-200">
+                        {employees.map(emp => (
+                          <tr key={emp.id}>
+                            <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">
+                              {emp.name}
+                            </td>
+                            {(() => {
+                              const [year, month] = selectedMonth.split('-');
+                              const daysInMonth = getDaysInMonth(parseInt(year), parseInt(month) - 1);
+                              return Array.from({ length: daysInMonth }, (_, i) => {
+                                const date = new Date(parseInt(year), parseInt(month) - 1, i + 1);
+                                const dateStr = `${year}-${String(parseInt(month)).padStart(2, '0')}-${String(i + 1).padStart(2, '0')}`;
+                                const dayOfWeek = date.getDay();
+                                
+                                // Check if it's a future date
+                                const today = new Date();
+                                today.setHours(0, 0, 0, 0); // Set to start of day for comparison
+                                const currentDate = new Date(date);
+                                currentDate.setHours(0, 0, 0, 0);
+                                
+                                if (currentDate > today) {
+                                  return (
+                                    <td key={i} className="px-2 py-4 text-center text-xs text-gray-400 bg-gray-50">
+                                      -
+                                    </td>
+                                  );
+                                }
+                                
+                                // Check if it's Sunday (day 0)
+                                if (dayOfWeek === 0) {
+                                  return (
+                                    <td key={i} className="px-2 py-4 text-center text-xs text-gray-400 bg-gray-50">
+                                      S
+                                    </td>
+                                  );
+                                }
+                                
+                                // Check if employee has leave for this date
+                                const employeeLeaves = detailedLeaveInfo[emp.id] || [];
+                                const hasLeave = employeeLeaves.some(leave => leave.date === dateStr);
+                                
+                                if (hasLeave) {
+                                  return (
+                                    <td key={i} className="px-2 py-4 text-center text-xs font-medium text-red-600 bg-red-50">
+                                      L
+                                    </td>
+                                  );
+                                }
+                                
+                                // Check if employee has attendance for this date
+                                const employeeRecords = allEmployeesData[emp.id]?.records || [];
+                                const attendanceRecord = employeeRecords.find(record => 
+                                  new Date(record.ClockInTime).toDateString() === date.toDateString()
+                                );
+                                
+                                if (attendanceRecord && attendanceRecord.ClockInTime) {
+                                  return (
+                                    <td key={i} className="px-2 py-4 text-center text-xs font-medium text-green-600 bg-green-50">
+                                      P
+                                    </td>
+                                  );
+                                }
+                                
+                                // If no attendance and not Sunday, mark as Festival
+                                return (
+                                  <td key={i} className="px-2 py-4 text-center text-xs font-medium text-orange-600 bg-orange-50">
+                                    F
+                                  </td>
+                                );
+                              });
+                            })()}
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+
+                {selectedMonth && (
+                  <div className="mt-6 p-4 bg-gray-50 rounded-lg">
+                    <h3 className="text-sm font-semibold text-gray-700 mb-2">Legend:</h3>
+                    <div className="flex flex-wrap gap-4 text-sm">
+                      <div className="flex items-center gap-2">
+                        <span className="w-4 h-4 bg-green-50 border border-green-200 rounded text-green-600 text-center font-medium text-xs">P</span>
+                        <span className="text-gray-600">Present (Clocked-in)</span>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <span className="w-4 h-4 bg-red-50 border border-red-200 rounded text-red-600 text-center font-medium text-xs">L</span>
+                        <span className="text-gray-600">Leave</span>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <span className="w-4 h-4 bg-orange-50 border border-orange-200 rounded text-orange-600 text-center font-medium text-xs">F</span>
+                        <span className="text-gray-600">Festival (No attendance, excluding Sundays)</span>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <span className="w-4 h-4 bg-gray-50 border border-gray-200 rounded text-gray-400 text-center font-medium text-xs">-</span>
+                        <span className="text-gray-600">Future (Upcoming days)</span>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <span className="w-4 h-4 bg-gray-50 border border-gray-200 rounded text-gray-400 text-center font-medium text-xs">S</span>
+                        <span className="text-gray-600">Sunday</span>
+                      </div>
+                    </div>
+                  </div>
+                )}
+              </div>
             </>
           )}
 
@@ -1389,6 +2294,202 @@ export default function AdminDashboard() {
           </div>
         </div>
       )}
+
+      {/* Leave Details Modal */}
+      {showLeaveModal && selectedEmployeeForLeaves && (
+        <div
+          className="fixed inset-0 bg-[#0000009b] bg-opacity-75 flex items-center justify-center z-50 p-1"
+          onClick={() => setShowLeaveModal(false)}
+        >
+          <div
+            className="relative max-w-4xl max-h-full bg-white rounded-xl overflow-hidden shadow-2xl w-full max-h-[80vh]"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex justify-between items-center p-3 border-b bg-linear-to-r from-purple-50 to-blue-50">
+              <div>
+                <h3 className="text-xl font-bold text-gray-900 flex items-center gap-2">
+                  <span>📋</span>
+                  Leave Details - {selectedEmployeeForLeaves.name}
+                </h3>
+                <p className="text-sm text-gray-600 mt-1">
+                  Complete leave history and details
+                </p>
+              </div>
+              <button
+                onClick={() => setShowLeaveModal(false)}
+                className="p-2 rounded-md text-gray-600 hover:text-gray-900 hover:bg-gray-100 transition-colors"
+              >
+                <svg className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                </svg>
+              </button>
+            </div>
+
+            <div className="p-3 overflow-y-auto max-h-[60vh]">
+              {(() => {
+                const employeeLeaves = detailedLeaveInfo[selectedEmployeeForLeaves.id] || [];
+                const totalLeaveDays = approvedLeaves[selectedEmployeeForLeaves.id] || 0;
+
+                if (employeeLeaves.length === 0) {
+                  return (
+                    <div className="text-center py-12">
+                      <div className="bg-green-100 rounded-full w-20 h-20 flex items-center justify-center mx-auto mb-4">
+                        <span className="text-3xl">✅</span>
+                      </div>
+                      <h4 className="text-lg font-semibold text-green-800 mb-2">No Leaves Taken</h4>
+                      <p className="text-gray-600">This employee has not taken any leave this month.</p>
+                    </div>
+                  );
+                }
+
+                return (
+                  <div className="space-y-6">
+                    {/* Summary Cards */}
+                    <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                      <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
+                        <div className="flex items-center justify-between">
+                          <div>
+                            <p className="text-blue-600 text-sm font-medium">Total Leave Entries</p>
+                            <p className="text-2xl font-bold text-blue-900 mt-1">{employeeLeaves.length}</p>
+                          </div>
+                          <div className="bg-blue-100 rounded-lg p-3">
+                            <span className="text-2xl">📊</span>
+                          </div>
+                        </div>
+                      </div>
+
+                      <div className="bg-orange-50 border border-orange-200 rounded-lg p-4">
+                        <div className="flex items-center justify-between">
+                          <div>
+                            <p className="text-orange-600 text-sm font-medium">Total Leave Days</p>
+                            <p className="text-2xl font-bold text-orange-900 mt-1">{totalLeaveDays}</p>
+                          </div>
+                          <div className="bg-orange-100 rounded-lg p-3">
+                            <span className="text-2xl">📅</span>
+                          </div>
+                        </div>
+                      </div>
+
+                      <div className="bg-red-50 border border-red-200 rounded-lg p-4">
+                        <div className="flex items-center justify-between">
+                          <div>
+                            <p className="text-red-600 text-sm font-medium">Salary Deduction</p>
+                            <p className="text-2xl font-bold text-red-900 mt-1">
+                              ₹{(() => {
+                                const empSalary = employeesSalaryData.find(emp => emp.id === parseInt(selectedEmployeeForLeaves.id));
+                                const monthlySalary = empSalary?.salary || 20000;
+                                const dailyWage = Math.round(monthlySalary / getCurrentMonthDays());
+                                return (totalLeaveDays * dailyWage).toLocaleString();
+                              })()}
+                            </p>
+                          </div>
+                          <div className="bg-red-100 rounded-lg p-3">
+                            <span className="text-2xl">💰</span>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Leave Details List */}
+                    <div>
+                      <h4 className="text-lg font-semibold text-gray-900 mb-4">Leave History</h4>
+                      <div className="space-y-3">
+                        {employeeLeaves.map((leave, index) => (
+                          <div key={index} className="bg-white border border-gray-200 rounded-lg p-4 hover:shadow-md transition-shadow">
+                            <div className="flex items-center justify-between">
+                              <div className="flex items-center gap-4">
+                                <div className="text-center">
+                                  <div className="text-lg font-bold text-gray-900">
+                                    {new Date(leave.date).getDate()}
+                                  </div>
+                                  <div className="text-xs text-gray-600">
+                                    {new Date(leave.date).toLocaleDateString('en-IN', { month: 'short' })}
+                                  </div>
+                                </div>
+                                <div className="h-12 w-px bg-gray-200"></div>
+                                <div>
+                                  <div className="flex items-center gap-2 mb-1">
+                                    <span className={`px-3 py-1 text-xs rounded-full font-medium border ${leave.type === 'Full Day'
+                                      ? 'bg-red-100 text-red-800 border-red-200'
+                                      : 'bg-orange-100 text-orange-800 border-orange-200'
+                                      }`}>
+                                      {leave.type === 'Full Day' ? '📅 Full Day' :
+                                        leave.type === 'First Half' ? '🌅 First Half' : '🌆 Second Half'}
+                                    </span>
+                                    <span className="text-xs text-gray-600 bg-gray-100 px-2 py-1 rounded">
+                                      {leave.leaveType}
+                                    </span>
+                                  </div>
+                                  <div className="text-sm text-gray-900">
+                                    {new Date(leave.date).toLocaleDateString('en-IN', {
+                                      weekday: 'long',
+                                      year: 'numeric',
+                                      month: 'long',
+                                      day: 'numeric'
+                                    })}
+                                  </div>
+                                </div>
+                              </div>
+                              <div className="text-right">
+                                <div className="text-sm text-gray-600 mb-1">
+                                  {leave.type === 'Full Day' ? '1 day' : '0.5 day'}
+                                </div>
+                                <div className="text-sm font-medium text-red-600">
+                                  -₹{(() => {
+                                    const empSalary = employeesSalaryData.find(emp => emp.id === parseInt(selectedEmployeeForLeaves.id));
+                                    const monthlySalary = empSalary?.salary || 20000;
+                                    const dailyWage = Math.round(monthlySalary / getCurrentMonthDays());
+                                    return (leave.type === 'Full Day' ? dailyWage : Math.round(dailyWage / 2)).toLocaleString();
+                                  })()}
+                                </div>
+                              </div>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  </div>
+                );
+              })()}
+            </div>
+
+            <div className="p-6 border-t bg-gray-50">
+              <div className="flex justify-end">
+                <button
+                  onClick={() => setShowLeaveModal(false)}
+                  className="px-6 py-2 bg-purple-600 hover:bg-purple-700 text-white rounded-lg font-medium transition-colors"
+                >
+                  Close
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Toast Container */}
+      {toasts.map((toast) => (
+        <div
+          key={toast.id}
+          className={`fixed top-4 right-4 z-50 p-4 rounded-lg shadow-lg max-w-sm ${toast.type === 'success' ? 'bg-green-500' :
+            toast.type === 'error' ? 'bg-red-500' : 'bg-blue-500'
+            } text-white`}
+        >
+          <div className="flex items-center justify-between">
+            <div className="flex-1">
+              <p className="font-medium">{toast.message}</p>
+            </div>
+            <button
+              onClick={() => removeToast(toast.id)}
+              className="ml-4 text-white hover:text-gray-200"
+            >
+              <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+              </svg>
+            </button>
+          </div>
+        </div>
+      ))}
     </div>
   );
 }

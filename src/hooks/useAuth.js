@@ -6,6 +6,7 @@ export function useAuth() {
   const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
   const [user, setUser] = useState(null);
+  const [userDetails, setUserDetails] = useState(null);
   const router = useRouter();
 
   useEffect(() => {
@@ -44,6 +45,10 @@ export function useAuth() {
           // Token is valid
           setIsAuthenticated(true);
           setUser({ id: userId, role: payload.role || role });
+          
+          // Fetch full user details with salary
+          fetchUserDetails(userId, token);
+          
         } catch (error) {
           // Invalid token
           logout();
@@ -55,6 +60,23 @@ export function useAuth() {
       }
 
       setIsLoading(false);
+    };
+
+    const fetchUserDetails = async (userId, token) => {
+      try {
+        const res = await fetch('/api/user', {
+          headers: {
+            Authorization: `Bearer ${token}`,
+          },
+        });
+
+        if (res.ok) {
+          const userData = await res.json();
+          setUserDetails(userData);
+        }
+      } catch (error) {
+        console.error('Error fetching user details:', error);
+      }
     };
 
     checkAuth();
@@ -100,6 +122,7 @@ export function useAuth() {
     isAuthenticated,
     isLoading,
     user,
+    userDetails,
     login,
     logout
   };

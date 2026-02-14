@@ -103,7 +103,7 @@ export default function Leave() {
         showToast("Leave request submitted successfully", 'success', 3000);
         setFormData({ leaveType: '', startDate: '', endDate: '', reason: '', leaveDuration: 'full' });
         setShowForm(false);
-        // Add the new request to the existing list for immediate UI update
+        // Add to existing list for immediate UI update
         setLeaveRequests(prev => [newRequest, ...prev]);
       } else {
         const errorData = await res.json();
@@ -111,6 +111,45 @@ export default function Leave() {
       }
     } catch (error) {
       console.error("Error submitting leave request:", error);
+      showToast("Network error. Please try again.", 'error', 5000);
+    }
+  };
+
+  const handleCancelLeave = async (leaveId) => {
+    if (!confirm('Are you sure you want to cancel this leave request?')) {
+      return;
+    }
+
+    try {
+      const res = await fetch(`/api/leave/requests/${leaveId}`, {
+        method: "PUT",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${localStorage.getItem("token")}`,
+        },
+        body: JSON.stringify({
+          status: 'cancelled',
+          actionBy: 'employee'
+        }),
+      });
+
+      if (res.ok) {
+        const result = await res.json();
+        showToast(result.message || "Leave request cancelled successfully", 'success', 3000);
+        // Update the leave request in the list
+        setLeaveRequests(prev => 
+          prev.map(request => 
+            request.id === leaveId 
+              ? { ...request, status: 'cancelled', updatedAt: new Date().toISOString() }
+              : request
+          )
+        );
+      } else {
+        const errorData = await res.json();
+        showToast(errorData.error || "Failed to cancel leave request", 'error', 5000);
+      }
+    } catch (error) {
+      console.error("Error cancelling leave request:", error);
       showToast("Network error. Please try again.", 'error', 5000);
     }
   };
@@ -287,6 +326,8 @@ export default function Leave() {
                               ? 'bg-green-100 text-green-800'
                               : request.status === 'rejected'
                               ? 'bg-red-100 text-red-800'
+                              : request.status === 'cancelled'
+                              ? 'bg-gray-100 text-gray-800'
                               : 'bg-yellow-100 text-yellow-800'
                           }`}>
                             {request.status || 'pending'}
@@ -298,6 +339,14 @@ export default function Leave() {
                           <div>Applied: {new Date(request.createdAt).toLocaleDateString()}</div>
                         </div>
                       </div>
+                      {request.status === 'pending' && (
+                        <button
+                          onClick={() => handleCancelLeave(request.id)}
+                          className="px-3 py-1 bg-gray-600 hover:bg-gray-700 text-white text-xs font-medium rounded transition-colors"
+                        >
+                          Cancel
+                        </button>
+                      )}
                     </div>
                     <div className="text-sm text-gray-900">
                       <div className="font-medium text-xs text-gray-700 mb-1">Reason:</div>
@@ -330,6 +379,9 @@ export default function Leave() {
                       <th className="px-4 sm:px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                         Applied On
                       </th>
+                      <th className="px-4 sm:px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                        Actions
+                      </th>
                     </tr>
                   </thead>
                   <tbody className="bg-white divide-y divide-gray-200">
@@ -357,10 +409,12 @@ export default function Leave() {
                         </td>
                         <td className="px-4 sm:px-6 py-3 sm:py-4 whitespace-nowrap">
                           <span className={`px-2 inline-flex text-xs leading-5 font-semibold rounded-full ${
-                            request.status === 'approved' 
+                            request.status === 'approve' 
                               ? 'bg-green-100 text-green-800'
-                              : request.status === 'rejected'
+                              : request.status === 'reject'
                               ? 'bg-red-100 text-red-800'
+                              : request.status === 'cancelled'
+                              ? 'bg-gray-100 text-gray-800'
                               : 'bg-yellow-100 text-yellow-800'
                           }`}>
                             {request.status || 'pending'}
@@ -368,6 +422,16 @@ export default function Leave() {
                         </td>
                         <td className="px-4 sm:px-6 py-3 sm:py-4 whitespace-nowrap text-sm text-gray-900">
                           {new Date(request.createdAt).toLocaleDateString()}
+                        </td>
+                        <td className="px-4 sm:px-6 py-3 sm:py-4 whitespace-nowrap">
+                          {request.status === 'pending' && (
+                            <button
+                              onClick={() => handleCancelLeave(request.id)}
+                              className="px-3 py-1 bg-gray-600 hover:bg-gray-700 text-white text-xs font-medium rounded transition-colors"
+                            >
+                              Cancel
+                            </button>
+                          )}
                         </td>
                       </tr>
                     ))}

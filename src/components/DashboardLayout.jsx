@@ -4,7 +4,7 @@ import { useAuth } from "@/hooks/useAuth";
 import Sidebar from "@/components/Sidebar";
 
 export default function DashboardLayout({ children }) {
-  const { user: authUser } = useAuth();
+  const { user: authUser, userDetails } = useAuth();
   const [sidebarOpen, setSidebarOpen] = useState(false);
 
   return (
@@ -13,7 +13,7 @@ export default function DashboardLayout({ children }) {
       <div className="lg:hidden bg-white shadow-sm border-b border-gray-200 sticky top-0 z-30">
         <div className="px-4 py-3">
           <div className="flex items-center justify-between">
-            <div className="flex items-center space-x-3">
+            <div className="flex items-center justify-between space-x-3">
               <button
                 onClick={() => setSidebarOpen(!sidebarOpen)}
                 className="p-2 rounded-md text-gray-600 hover:text-gray-900 hover:bg-gray-100 transition-colors"
@@ -24,6 +24,11 @@ export default function DashboardLayout({ children }) {
               </button>
               <h1 className="text-lg font-semibold text-gray-900">Attendance System</h1>
             </div>
+            {userDetails?.salary && (
+              <div className="text-sm text-green-600 font-medium">
+                Salary: ₹{userDetails.salary.toLocaleString()}
+              </div>
+            )}
             {/* <div className="text-sm text-gray-600">
               {authUser?.role === "User" ? `User ${authUser?.id}` : "Admin"}
             </div> */}
@@ -31,12 +36,12 @@ export default function DashboardLayout({ children }) {
         </div>
       </div>
 
-      <div className="flex">
+      <div className="flex h-screen">
         {/* Sidebar */}
         <Sidebar isOpen={sidebarOpen} onClose={() => setSidebarOpen(false)} />
 
         {/* Main Content */}
-        <div className="flex-1 lg:ml-0 lg:p-8 md:p-6 p-4">
+        <div className="flex-1 overflow-y-auto lg:ml-64 lg:p-8 md:p-6 p-4">
           {children}
         </div>
       </div>
