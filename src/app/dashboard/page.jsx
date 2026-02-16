@@ -107,14 +107,17 @@ export default function Dashboard() {
 
       if (res.ok) {
         const leaves = await res.json();
-        const today = new Date().toDateString();
+        const today = new Date();
         
-        const approvedLeaveToday = leaves.some(leave => 
-          (leave.status === 'approve' || leave.status === 'approved') &&
-          new Date(leave.startDate).toDateString() <= today &&
-          new Date(leave.endDate).toDateString() >= today
-        );
-        
+        // Check if today's date falls within any approved leave period
+        const approvedLeaveToday = leaves.some(leave => {
+          const startDate = new Date(leave.startDate);
+          const endDate = new Date(leave.endDate);
+          const isApproved = (leave.status === 'approve' || leave.status === 'approved');
+          const isInRange = startDate <= today && endDate >= today;
+          
+          return isApproved && isInRange;
+        });
         setHasApprovedLeaveToday(approvedLeaveToday);
       }
     } catch (error) {
