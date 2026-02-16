@@ -111,11 +111,6 @@ export default function Sidebar({ isOpen, onClose }) {
                   <p className="text-sm text-gray-500 truncate">
                     {userDetails?.name || (authUser?.role === "User" ? `User ${authUser?.id}` : "Admin")}
                   </p>
-                  {userDetails?.salary && (
-                    <p className="text-sm text-green-600 font-medium">
-                      Salary: ₹{userDetails.salary.toLocaleString()}
-                    </p>
-                  )}
                 </div>
               </div>
               {/* Mobile close button */}

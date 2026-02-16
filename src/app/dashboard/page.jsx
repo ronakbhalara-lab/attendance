@@ -34,6 +34,7 @@ export default function Dashboard() {
   const [capturedImage, setCapturedImage] = useState(null);
   const [isProcessing, setIsProcessing] = useState(false);
   const [hasApprovedLeaveToday, setHasApprovedLeaveToday] = useState(false);
+  const [pendingLeaveRequests, setPendingLeaveRequests] = useState([]);
 
   useEffect(() => {
     // Only fetch data if user is authenticated
@@ -41,6 +42,7 @@ export default function Dashboard() {
       fetchUserDetails();
       fetchAttendance(authUser.id);
       checkApprovedLeaveToday();
+      fetchPendingLeaveRequests();
     } else {
       setLoading(false);
     }
@@ -117,6 +119,61 @@ export default function Dashboard() {
       }
     } catch (error) {
       console.error("Error checking approved leave:", error);
+    }
+  };
+
+  const fetchPendingLeaveRequests = async () => {
+    try {
+      const token = localStorage.getItem("token");
+
+      const res = await fetch("/api/leave/requests", {
+        headers: {
+          Authorization: `Bearer ${token}`,
+        },
+      });
+
+      if (res.ok) {
+        const leaves = await res.json();
+        const pendingLeaves = leaves.filter(leave => 
+          leave.status === 'pending' || leave.status === 'Pending'
+        );
+        
+        setPendingLeaveRequests(pendingLeaves);
+      }
+    } catch (error) {
+      console.error("Error fetching pending leave requests:", error);
+    }
+  };
+
+  const cancelLeaveRequest = async (leaveId) => {
+    if (!confirm("Are you sure you want to cancel this leave request?")) {
+      return;
+    }
+
+    try {
+      const token = localStorage.getItem("token");
+
+      const res = await fetch(`/api/leave/requests/${leaveId}`, {
+        method: "PUT",
+        headers: {
+          Authorization: `Bearer ${token}`,
+          "Content-Type": "application/json"
+        },
+        body: JSON.stringify({
+          status: 'cancelled'
+        })
+      });
+
+      if (res.ok) {
+        showToast("Leave request cancelled successfully", 'success', 3000);
+        // Refresh pending leave requests
+        fetchPendingLeaveRequests();
+      } else {
+        const data = await res.json();
+        showToast(`Failed to cancel leave request: ${data.error || 'Unknown error'}`, 'error', 5000);
+      }
+    } catch (error) {
+      showToast(`Network error: ${error.message}`, 'error', 5000);
     }
   };
 
@@ -596,6 +653,76 @@ export default function Dashboard() {
                   )}
                 </div>
               </div>
+
+              {/* Pending Leave Requests */}
+              {pendingLeaveRequests.length > 0 && (
+                <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-4 sm:p-6 mb-6">
+                  <div className="p-4 sm:p-6 border-b border-gray-200">
+                    <h2 className="text-lg sm:text-xl font-semibold text-gray-900">Pending Leave Requests</h2>
+                    <p className="text-sm text-gray-600 mt-1">Your leave requests awaiting approval</p>
+                  </div>
+
+                  <div className="p-4 space-y-3">
+                    {pendingLeaveRequests.map((leave) => (
+                      <div key={leave.id} className="border border-gray-200 rounded-lg p-4 hover:bg-gray-50 transition-colors">
+                        <div className="flex items-start justify-between">
+                          <div className="flex-1">
+                            <div className="flex items-center space-x-2 mb-2">
+                              <span className="font-semibold text-gray-900">{leave.leaveType}</span>
+                              <span className="text-xs bg-yellow-100 text-yellow-800 px-2 py-1 rounded-full">
+                                Pending
+                              </span>
+                              <span className="text-xs bg-blue-100 text-blue-800 px-2 py-1 rounded-full">
+                                {leave.leaveDuration === 'full' ? 'Full Day' : 
+                                 leave.leaveDuration === 'firstHalf' ? 'First Half' : 'Second Half'}
+                              </span>
+                            </div>
+                            
+                            <div className="text-sm text-gray-600 space-y-1">
+                              <div className="flex items-center space-x-2">
+                                <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 20 20">
+                                  <path fillRule="evenodd" d="M6 2a1 1 0 00-1 1v1H4a2 2 0 00-2 2v10a2 2 0 002 2H6a2 2 0 00-2-2V3a1 1 0 10-2 0v1H7a1 1 0 002 0z" clipRule="evenodd" />
+                                </svg>
+                                <span>
+                                  {new Date(leave.startDate).toLocaleDateString('en-IN', { 
+                                    day: 'numeric', 
+                                    month: 'short', 
+                                    year: 'numeric' 
+                                  })}
+                                  {leave.startDate !== leave.endDate && ` - ${new Date(leave.endDate).toLocaleDateString('en-IN', { 
+                                    day: 'numeric', 
+                                    month: 'short', 
+                                    year: 'numeric' 
+                                  })}`}
+                                </span>
+                              </div>
+                              
+                              <div className="flex items-start space-x-2">
+                                <svg className="w-4 h-4 mt-0.5" fill="currentColor" viewBox="0 0 20 20">
+                                  <path fillRule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7-4a1 1 0 11-2 0v1a1 1 0 002 0h12a1 1 0 002 0zm-1-8a1 1 0 00-2 0v3a1 1 0 002 0h12a1 1 0 002 0v3a1 1 0 00-2-2z" clipRule="evenodd" />
+                                </svg>
+                                <span className="line-clamp-2">{leave.reason}</span>
+                              </div>
+                            </div>
+                          </div>
+                          
+                          <div className="flex flex-col space-y-2 ml-4">
+                            <button
+                              onClick={() => cancelLeaveRequest(leave.id)}
+                              className="px-3 py-2 bg-red-500 text-white text-sm rounded-lg hover:bg-red-600 transition-colors flex items-center space-x-1"
+                            >
+                              <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 20 20">
+                                <path fillRule="evenodd" d="M4.293 4.293a1 1 0 011.414 0L10 8.586l4.293-4.293a1 1 0 01-1.414 1.414L10 12.414l-4.293 4.293a1 1 0 01-1.414-1.414L8.586 10 4.293 5.707a1 1 0 010-1.414z" clipRule="evenodd" />
+                              </svg>
+                              <span>Cancel Request</span>
+                            </button>
+                          </div>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
 
               {/* Attendance Records */}
               <div className="bg-white rounded-xl shadow-sm border border-gray-200">

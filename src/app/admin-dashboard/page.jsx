@@ -1,6 +1,7 @@
 "use client";
 import { useEffect, useState } from "react";
 import { useToast } from "@/hooks/useToast";
+import LeaveNotificationToast from "@/components/LeaveNotificationToast";
 
 // Helper function to convert file path to API URL
 const getImageUrl = (filePath) => {
@@ -34,7 +35,7 @@ export default function AdminDashboard() {
   const [selectedMonth, setSelectedMonth] = useState("");
   const [selectedImage, setSelectedImage] = useState(null);
   const [showImageModal, setShowImageModal] = useState(false);
-  const [isSidebarOpen, setIsSidebarOpen] = useState(true);
+  const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
   const [autoClockOutStatus, setAutoClockOutStatus] = useState(null);
   const [runningAutoClockOut, setRunningAutoClockOut] = useState(false);
@@ -50,9 +51,55 @@ export default function AdminDashboard() {
   const [loadingSalaryData, setLoadingSalaryData] = useState(false);
   const [editingSalary, setEditingSalary] = useState(null);
   const [approvedLeaves, setApprovedLeaves] = useState({});
+  const [rejectedLeaves, setRejectedLeaves] = useState({});
   const [detailedLeaveInfo, setDetailedLeaveInfo] = useState({});
   const [showLeaveModal, setShowLeaveModal] = useState(false);
   const [selectedEmployeeForLeaves, setSelectedEmployeeForLeaves] = useState(null);
+  const [showLeaveNotification, setShowLeaveNotification] = useState(false);
+  const [pendingLeaveRequests, setPendingLeaveRequests] = useState([]);
+  const [notificationLastChecked, setNotificationLastChecked] = useState(null);
+  const [hasNotifiedForCurrentBatch, setHasNotifiedForCurrentBatch] = useState(false);
+
+  /* ================= CHECK PENDING LEAVE REQUESTS ================= */
+  const checkPendingLeaveRequests = async () => {
+    try {
+      const token = localStorage.getItem("adminToken");
+
+      const res = await fetch("/api/admin/leave-requests", {
+        headers: {
+          Authorization: `Bearer ${token}`
+        }
+      });
+
+      if (res.ok) {
+        const data = await res.json();
+        const pendingLeaves = data.filter(leave =>
+          leave.status === 'pending' || leave.status === 'Pending'
+        );
+
+        setPendingLeaveRequests(pendingLeaves);
+
+        // Show notification only if there are pending leaves AND we haven't notified for this batch yet
+        if (pendingLeaves.length > 0 && !hasNotifiedForCurrentBatch) {
+          setShowLeaveNotification(true);
+          setHasNotifiedForCurrentBatch(true);
+        }
+
+        // Reset notification flag when all pending leaves are cleared
+        if (pendingLeaves.length === 0 && hasNotifiedForCurrentBatch) {
+          setHasNotifiedForCurrentBatch(false);
+          setShowLeaveNotification(false);
+        }
+
+        // Keep notification hidden for existing batch even if new pending requests come
+        // The notification will only show again when all current pending requests are cleared and new ones come
+
+        setNotificationLastChecked(new Date());
+      }
+    } catch (error) {
+      console.error("Error checking pending leave requests:", error);
+    }
+  };
 
   /* ================= LOAD LEAVE REQUESTS ================= */
   const loadLeaveRequests = async () => {
@@ -103,6 +150,10 @@ export default function AdminDashboard() {
       if (res.ok) {
         // Refresh leave requests
         loadLeaveRequests();
+        // Check if there are still pending requests after this action
+        setTimeout(async () => {
+          await checkPendingLeaveRequests();
+        }, 500);
         showToast(`Leave request ${status}d successfully`, 'success', 3000);
       } else {
         const data = await res.json();
@@ -162,6 +213,55 @@ export default function AdminDashboard() {
     }
   };
 
+  /* ================= LOAD REJECTED LEAVES ================= */
+  const loadRejectedLeaves = async () => {
+    try {
+      const token = localStorage.getItem("adminToken");
+
+      const res = await fetch("/api/admin/leave-requests", {
+        headers: {
+          Authorization: `Bearer ${token}`
+        }
+      });
+
+      if (res.ok) {
+        const data = await res.json();
+        const rejectedLeavesData = {};
+
+        // Group rejected leaves by user and calculate total leave days (for double deduction)
+        data.forEach(leave => {
+          if (leave.status === 'reject' || leave.status === 'rejected') {
+            if (!rejectedLeavesData[leave.userId]) {
+              rejectedLeavesData[leave.userId] = 0;
+            }
+
+            // Calculate leave duration more accurately
+            const startDate = new Date(leave.startDate);
+            const endDate = new Date(leave.endDate);
+
+            let leaveDays = 0;
+
+            if (leave.leaveDuration === 'full') {
+              // For full day leaves, calculate the number of days in the date range
+              const daysDiff = Math.ceil((endDate - startDate) / (1000 * 60 * 60 * 24)) + 1;
+              leaveDays = daysDiff;
+            } else if (leave.leaveDuration === 'firstHalf' || leave.leaveDuration === 'secondHalf') {
+              // For half day leaves, calculate 0.5 days for each day in the date range
+              const daysDiff = Math.ceil((endDate - startDate) / (1000 * 60 * 60 * 24)) + 1;
+              leaveDays = 0.5 * daysDiff;
+            }
+
+            rejectedLeavesData[leave.userId] += leaveDays;
+          }
+        });
+
+        setRejectedLeaves(rejectedLeavesData);
+      }
+    } catch (error) {
+      console.error("Error loading rejected leaves:", error);
+    }
+  };
+
   /* ================= GET EMPLOYEE WISE LEAVE DATA ================= */
   const getEmployeeWiseLeaveData = async () => {
     try {
@@ -177,9 +277,9 @@ export default function AdminDashboard() {
         const data = await res.json();
         const employeeLeaveData = {};
 
-        // Group approved leaves by user
+        // Group approved and rejected leaves by user
         data.forEach(leave => {
-          if (leave.status === 'approve' || leave.status === 'approved') {
+          if (leave.status === 'approve' || leave.status === 'approved' || leave.status === 'reject' || leave.status === 'rejected') {
             if (!employeeLeaveData[leave.userId]) {
               employeeLeaveData[leave.userId] = [];
             }
@@ -198,6 +298,7 @@ export default function AdminDashboard() {
                   date: formattedDate,
                   type: 'Full Day',
                   leaveType: leave.leaveType || 'Leave',
+                  status: leave.status,
                   originalData: leave
                 });
               }
@@ -212,6 +313,7 @@ export default function AdminDashboard() {
                   date: formattedDate,
                   type: leave.leaveDuration === 'firstHalf' ? 'First Half' : 'Second Half',
                   leaveType: leave.leaveType || 'Leave',
+                  status: leave.status,
                   originalData: leave
                 });
               }
@@ -393,6 +495,17 @@ export default function AdminDashboard() {
   // Load auto clock-out status on component mount
   useEffect(() => {
     loadAutoClockOutStatus();
+    // Check for pending leave requests on component mount
+    checkPendingLeaveRequests();
+  }, []);
+
+  // Periodic checking for pending leave requests (every 10 seconds for more real-time feel)
+  useEffect(() => {
+    const interval = setInterval(() => {
+      checkPendingLeaveRequests();
+    }, 10000); // Check every 10 seconds
+
+    return () => clearInterval(interval);
   }, []);
 
   // Load all employees data when view mode changes to all-employees, leave-management, salary-report, final-report, or salary-management
@@ -404,10 +517,12 @@ export default function AdminDashboard() {
     } else if (viewMode === "salary-report") {
       loadAllEmployeesAttendance();
       loadApprovedLeaves();
+      loadRejectedLeaves(); // Load rejected leaves for double deduction
       loadEmployeesSalaryData(); // Load salary data for salary report
     } else if (viewMode === "final-report") {
       loadAllEmployeesAttendance();
       loadApprovedLeaves();
+      loadRejectedLeaves(); // Load rejected leaves for double deduction
     } else if (viewMode === "salary-management") {
       loadEmployeesSalaryData();
     }
@@ -646,8 +761,18 @@ export default function AdminDashboard() {
 
   return (
     <div className="flex h-screen bg-gray-100">
+      {/* ================= SIDEBAR TRIGGER AREA ================= */}
+      <div
+        className="w-2 bg-blue-900 hover:bg-blue-800 transition-colors cursor-pointer"
+        onMouseEnter={() => setIsSidebarOpen(true)}
+      />
+
       {/* ================= BLUE SIDEBAR ================= */}
-      <aside className={`${isSidebarOpen ? (isSidebarCollapsed ? 'w-16' : 'w-64') : 'w-0'} bg-blue-900 text-white flex flex-col transition-all duration-300 overflow-hidden`}>
+      <aside
+        className={`${isSidebarOpen ? (isSidebarCollapsed ? 'w-16' : 'w-64') : 'w-0'} bg-blue-900 text-white flex flex-col transition-all duration-300 overflow-hidden`}
+        onMouseEnter={() => setIsSidebarOpen(true)}
+        onMouseLeave={() => setIsSidebarOpen(false)}
+      >
         {/* Hamburger Menu Button */}
         <div className="p-4 border-b border-blue-500 flex justify-between items-center">
           {!isSidebarCollapsed && <h2 className="text-xl font-bold">Employees</h2>}
@@ -874,18 +999,6 @@ export default function AdminDashboard() {
 
       {/* ================= MAIN CONTENT ================= */}
       <main className="flex-1 p-6 overflow-auto relative">
-        {/* Hamburger Menu Button - Only show when sidebar is closed */}
-        {!isSidebarOpen && (
-          <button
-            onClick={() => setIsSidebarOpen(!isSidebarOpen)}
-            className="absolute top-4 left-4 z-10 p-2 bg-blue-900 text-white rounded-lg hover:bg-blue-800 transition-colors"
-          >
-            <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6h16M4 12h16M4 18h16" />
-            </svg>
-          </button>
-        )}
-
         <div className={`${isSidebarOpen ? 'ml-0' : 'ml-0'}`}>
           <div className={`flex items-center justify-between mb-4 ${(viewMode === "leave-management" || viewMode === "salary-report" || viewMode === "final-report" || viewMode === "salary-management") ? 'hidden' : 'block'}`} >
             <h1 className="text-2xl font-bold">
@@ -1622,7 +1735,7 @@ export default function AdminDashboard() {
                                           </button>
                                         </>
                                       )}
-                                      {request.status === 'approve' && (
+                                      {(request.status === 'approve' || request.status === 'reject') && (
                                         <button
                                           onClick={() => updateLeaveStatus(request.id, 'cancel')}
                                           className="px-3 py-1 bg-gray-600 hover:bg-gray-700 text-white text-xs font-medium rounded transition-colors"
@@ -1716,12 +1829,14 @@ export default function AdminDashboard() {
                           -₹{Object.entries(getFilteredAllEmployeesData()).reduce((sum, [employeeId]) => {
                             const empSalary = employeesSalaryData.find(emp => emp.id === parseInt(employeeId));
                             if (!empSalary?.salary) return sum; // Skip employees without salary data
-                            
+
                             const monthlySalary = empSalary.salary;
                             const currentMonthDays = getCurrentMonthDays();
                             const dailyWage = monthlySalary / currentMonthDays;
                             const approvedLeaveDays = approvedLeaves[employeeId] || 0;
-                            return sum + Math.round(approvedLeaveDays * dailyWage * 100) / 100;
+                            const rejectedLeaveDays = rejectedLeaves[employeeId] || 0;
+                            const totalLeaveDeduction = approvedLeaveDays + (rejectedLeaveDays * 2);
+                            return sum + Math.round(totalLeaveDeduction * dailyWage * 100) / 100;
                           }, 0).toLocaleString()}
                         </p>
                       </div>
@@ -1741,14 +1856,16 @@ export default function AdminDashboard() {
                           ₹{Object.entries(getFilteredAllEmployeesData()).reduce((sum, [employeeId, employeeData]) => {
                             const empSalary = employeesSalaryData.find(emp => emp.id === parseInt(employeeId));
                             if (!empSalary?.salary) return sum; // Skip employees without salary data
-                            
+
                             const monthlySalary = empSalary.salary;
                             const currentMonthDays = getCurrentMonthDays();
                             const dailyWage = monthlySalary / currentMonthDays;
                             const approvedDays = employeeData.records.filter(r => r.IsApproved === 1 || r.IsApproved === true).length;
                             const approvedLeaveDays = approvedLeaves[employeeId] || 0;
+                            const rejectedLeaveDays = rejectedLeaves[employeeId] || 0;
                             const totalWorkingDays = currentMonthDays;
-                            const workingDaysAfterLeave = totalWorkingDays - approvedLeaveDays;
+                            const totalLeaveDeduction = approvedLeaveDays + (rejectedLeaveDays * 2);
+                            const workingDaysAfterLeave = totalWorkingDays - totalLeaveDeduction;
                             const actualWorkingDays = Math.min(approvedDays, workingDaysAfterLeave);
                             const calculatedSalary = Math.round(actualWorkingDays * dailyWage * 100) / 100;
                             return sum + calculatedSalary;
@@ -1841,23 +1958,25 @@ export default function AdminDashboard() {
                             <p className="text-2xl font-bold text-purple-600">
                               {(() => {
                                 const empSalary = employeesSalaryData.find(emp => emp.id === parseInt(employeeId));
-                                
+
                                 // Only calculate if employee has salary data
                                 if (!empSalary?.salary) {
                                   return '-';
                                 }
-                                
+
                                 const monthlySalary = empSalary.salary;
                                 const currentMonthDays = getCurrentMonthDays();
                                 const dailyWage = monthlySalary / currentMonthDays;
                                 const approvedDays = employeeData.records.filter(r => r.IsApproved === 1 || r.IsApproved === true).length;
                                 const approvedLeaveDays = approvedLeaves[employeeId] || 0;
+                                const rejectedLeaveDays = rejectedLeaves[employeeId] || 0;
 
                                 // Calculate total working days in month (actual days in current month)
                                 const totalWorkingDays = currentMonthDays;
 
-                                // Calculate actual working days after leave deduction
-                                const workingDaysAfterLeave = totalWorkingDays - approvedLeaveDays;
+                                // Calculate actual working days after leave deduction (approved leaves + double rejected leaves)
+                                const totalLeaveDeduction = approvedLeaveDays + (rejectedLeaveDays * 2);
+                                const workingDaysAfterLeave = totalWorkingDays - totalLeaveDeduction;
 
                                 // Salary should be based on actual working days or approved attendance days, whichever is lower
                                 const actualWorkingDays = Math.min(approvedDays, workingDaysAfterLeave);
@@ -1869,22 +1988,33 @@ export default function AdminDashboard() {
                             <p className="text-sm text-gray-600">
                               {(() => {
                                 const empSalary = employeesSalaryData.find(emp => emp.id === parseInt(employeeId));
-                                
+
                                 // Only show calculation details if employee has salary data
                                 if (!empSalary?.salary) {
                                   return 'Add salary data to calculate';
                                 }
-                                
+
                                 const monthlySalary = empSalary.salary;
                                 const currentMonthDays = getCurrentMonthDays();
                                 const dailyWage = monthlySalary / currentMonthDays;
                                 const approvedDays = employeeData.records.filter(r => r.IsApproved === 1 || r.IsApproved === true).length;
                                 const approvedLeaveDays = approvedLeaves[employeeId] || 0;
+                                const rejectedLeaveDays = rejectedLeaves[employeeId] || 0;
                                 const totalWorkingDays = currentMonthDays;
-                                const workingDaysAfterLeave = totalWorkingDays - approvedLeaveDays;
+                                const totalLeaveDeduction = approvedLeaveDays + (rejectedLeaveDays * 2);
+                                const workingDaysAfterLeave = totalWorkingDays - totalLeaveDeduction;
                                 const actualWorkingDays = Math.min(approvedDays, workingDaysAfterLeave);
-                                const leaveDeduction = approvedLeaveDays * dailyWage;
-                                return `${actualWorkingDays} working days × ₹${dailyWage.toFixed(2)}/day${approvedLeaveDays > 0 ? ` (${approvedLeaveDays} leave days deducted: -₹${leaveDeduction.toFixed(2)})` : ''}`;
+                                const leaveDeduction = totalLeaveDeduction * dailyWage;
+                                const deductionDetails = [];
+
+                                if (approvedLeaveDays > 0) {
+                                  deductionDetails.push(`${approvedLeaveDays} approved leave days`);
+                                }
+                                if (rejectedLeaveDays > 0) {
+                                  deductionDetails.push(`${rejectedLeaveDays} rejected leave days (double deduction: ${rejectedLeaveDays * 2} days)`);
+                                }
+
+                                return `${actualWorkingDays} working days × ₹${dailyWage.toFixed(2)}/day${deductionDetails.length > 0 ? ` (${deductionDetails.join(', ')} deducted: -₹${leaveDeduction.toFixed(2)})` : ''}`;
                               })()}
                             </p>
                           </div>
@@ -2108,35 +2238,80 @@ export default function AdminDashboard() {
           {viewMode === "final-report" && (
             <>
               <div className="flex items-center justify-between mb-4">
-                <h2 className="text-2xl font-bold">Final Report</h2>
+                <h2 className="text-2xl font-bold">Final Report (2026 Onwards)</h2>
               </div>
 
               <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
                 <div className="mb-6">
-                  <label className="block text-sm font-medium text-gray-700 mb-2">Select Month</label>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">Filter by Month (Optional)</label>
                   <input
                     type="month"
                     value={selectedMonth}
                     onChange={(e) => setSelectedMonth(e.target.value)}
+                    min="2026-01"
                     className="px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
                   />
+                  <button
+                    onClick={() => setSelectedMonth('')}
+                    className="ml-2 px-4 py-2 bg-gray-500 hover:bg-gray-600 text-white rounded-lg text-sm"
+                  >
+                    Clear Filter
+                  </button>
                 </div>
 
-                {selectedMonth && (
+                {!selectedMonth ? (
+                  <div className="text-center py-16">
+                    <div className="bg-blue-100 rounded-full w-20 h-20 flex items-center justify-center mx-auto mb-6">
+                      <span className="text-3xl">📅</span>
+                    </div>
+                    <h3 className="text-xl font-semibold text-gray-800 mb-3">Select a Month to View Report</h3>
+                    <p className="text-gray-600 max-w-md mx-auto">
+                      Please select a month from the filter above to view the detailed attendance report with daily status and monthly totals.
+                    </p>
+                  </div>
+                ) : (
                   <div className="overflow-x-auto">
                     <table className="min-w-full divide-y divide-gray-200">
                       <thead className="bg-gray-50">
                         <tr>
                           <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Employee</th>
                           {(() => {
-                            const [year, month] = selectedMonth.split('-');
-                            const daysInMonth = getDaysInMonth(parseInt(year), parseInt(month) - 1);
-                            return Array.from({ length: daysInMonth }, (_, i) => (
-                              <th key={i} className="px-2 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider">
-                                {i + 1}
-                              </th>
-                            ));
+                            if (selectedMonth) {
+                              // Show selected month days
+                              const [year, month] = selectedMonth.split('-');
+                              const daysInMonth = getDaysInMonth(parseInt(year), parseInt(month) - 1);
+                              return Array.from({ length: daysInMonth }, (_, i) => (
+                                <th key={i} className="px-2 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider">
+                                  {i + 1}
+                                </th>
+                              ));
+                            } else {
+                              // Show all months from 2026 onwards
+                              const currentYear = new Date().getFullYear();
+                              const currentMonth = new Date().getMonth();
+                              const months = [];
+
+                              for (let year = 2026; year <= currentYear; year++) {
+                                const maxMonth = (year === currentYear) ? currentMonth + 1 : 12;
+                                for (let month = 0; month < maxMonth; month++) {
+                                  const monthName = new Date(year, month).toLocaleDateString('en-US', { month: 'short', year: 'numeric' });
+                                  months.push(
+                                    <th key={`${year}-${month}`} className="px-2 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider">
+                                      {monthName}
+                                    </th>
+                                  );
+                                }
+                              }
+                              return months;
+                            }
                           })()}
+                          {selectedMonth && (
+                            <>
+                              <th className="px-4 py-3 text-center text-xs font-medium text-gray-700 uppercase tracking-wider bg-blue-200">P</th>
+                              <th className="px-4 py-3 text-center text-xs font-medium text-gray-700 uppercase tracking-wider bg-red-200">L</th>
+                              <th className="px-4 py-3 text-center text-xs font-medium text-gray-700 uppercase tracking-wider bg-orange-200">F</th>
+                            </>
+                          )}
                         </tr>
                       </thead>
                       <tbody className="bg-white divide-y divide-gray-200">
@@ -2146,102 +2321,165 @@ export default function AdminDashboard() {
                               {emp.name}
                             </td>
                             {(() => {
-                              const [year, month] = selectedMonth.split('-');
-                              const daysInMonth = getDaysInMonth(parseInt(year), parseInt(month) - 1);
-                              return Array.from({ length: daysInMonth }, (_, i) => {
-                                const date = new Date(parseInt(year), parseInt(month) - 1, i + 1);
-                                const dateStr = `${year}-${String(parseInt(month)).padStart(2, '0')}-${String(i + 1).padStart(2, '0')}`;
-                                const dayOfWeek = date.getDay();
-                                
-                                // Check if it's a future date
-                                const today = new Date();
-                                today.setHours(0, 0, 0, 0); // Set to start of day for comparison
-                                const currentDate = new Date(date);
-                                currentDate.setHours(0, 0, 0, 0);
-                                
-                                if (currentDate > today) {
+                              if (selectedMonth) {
+                                // Show selected month data
+                                const [year, month] = selectedMonth.split('-');
+                                const daysInMonth = getDaysInMonth(parseInt(year), parseInt(month) - 1);
+                                let presentCount = 0;
+                                let leaveCount = 0;
+                                let festivalCount = 0;
+
+                                const dailyCells = Array.from({ length: daysInMonth }, (_, i) => {
+                                  const date = new Date(parseInt(year), parseInt(month) - 1, i + 1);
+                                  const dateStr = `${year}-${String(parseInt(month)).padStart(2, '0')}-${String(i + 1).padStart(2, '0')}`;
+                                  const dayOfWeek = date.getDay();
+
+                                  // Check if it's a future date
+                                  const today = new Date();
+                                  today.setHours(0, 0, 0, 0);
+                                  const currentDate = new Date(date);
+                                  currentDate.setHours(0, 0, 0, 0);
+
+                                  if (currentDate > today) {
+                                    return (
+                                      <td key={i} className="px-2 py-4 text-center text-xs text-gray-400 bg-gray-50">
+                                        -
+                                      </td>
+                                    );
+                                  }
+
+                                  // Check if it's Sunday
+                                  if (dayOfWeek === 0) {
+                                    return (
+                                      <td key={i} className="px-2 py-4 text-center text-xs text-gray-400 bg-gray-50">
+                                        S
+                                      </td>
+                                    );
+                                  }
+
+                                  // Check leave
+                                  const employeeLeaves = detailedLeaveInfo[emp.id] || [];
+                                  const hasLeave = employeeLeaves.some(leave => leave.date === dateStr);
+
+                                  if (hasLeave) {
+                                    leaveCount++;
+                                    return (
+                                      <td key={i} className="px-2 py-4 text-center text-xs font-medium text-red-600 bg-red-50">
+                                        L
+                                      </td>
+                                    );
+                                  }
+
+                                  // Check attendance
+                                  const employeeRecords = allEmployeesData[emp.id]?.records || [];
+                                  const attendanceRecord = employeeRecords.find(record =>
+                                    new Date(record.ClockInTime).toDateString() === date.toDateString()
+                                  );
+
+                                  if (attendanceRecord && attendanceRecord.ClockInTime) {
+                                    presentCount++;
+                                    return (
+                                      <td key={i} className="px-2 py-4 text-center text-xs font-medium text-green-600 bg-green-50">
+                                        P
+                                      </td>
+                                    );
+                                  }
+
+                                  festivalCount++;
                                   return (
-                                    <td key={i} className="px-2 py-4 text-center text-xs text-gray-400 bg-gray-50">
-                                      -
+                                    <td key={i} className="px-2 py-4 text-center text-xs font-medium text-orange-600 bg-orange-50">
+                                      F
                                     </td>
                                   );
-                                }
-                                
-                                // Check if it's Sunday (day 0)
-                                if (dayOfWeek === 0) {
-                                  return (
-                                    <td key={i} className="px-2 py-4 text-center text-xs text-gray-400 bg-gray-50">
-                                      S
-                                    </td>
-                                  );
-                                }
-                                
-                                // Check if employee has leave for this date
-                                const employeeLeaves = detailedLeaveInfo[emp.id] || [];
-                                const hasLeave = employeeLeaves.some(leave => leave.date === dateStr);
-                                
-                                if (hasLeave) {
-                                  return (
-                                    <td key={i} className="px-2 py-4 text-center text-xs font-medium text-red-600 bg-red-50">
-                                      L
-                                    </td>
-                                  );
-                                }
-                                
-                                // Check if employee has attendance for this date
-                                const employeeRecords = allEmployeesData[emp.id]?.records || [];
-                                const attendanceRecord = employeeRecords.find(record => 
-                                  new Date(record.ClockInTime).toDateString() === date.toDateString()
-                                );
-                                
-                                if (attendanceRecord && attendanceRecord.ClockInTime) {
-                                  return (
-                                    <td key={i} className="px-2 py-4 text-center text-xs font-medium text-green-600 bg-green-50">
-                                      P
-                                    </td>
-                                  );
-                                }
-                                
-                                // If no attendance and not Sunday, mark as Festival
-                                return (
-                                  <td key={i} className="px-2 py-4 text-center text-xs font-medium text-orange-600 bg-orange-50">
-                                    F
+                                });
+
+                                return [
+                                  ...dailyCells,
+                                  <td key="total-p" className="px-4 py-4 text-center text-sm font-bold text-green-700 bg-green-50">
+                                    {presentCount}
+                                  </td>,
+                                  <td key="total-l" className="px-4 py-4 text-center text-sm font-bold text-red-700 bg-red-50">
+                                    {leaveCount}
+                                  </td>,
+                                  <td key="total-f" className="px-4 py-4 text-center text-sm font-bold text-orange-700 bg-orange-50">
+                                    {festivalCount}
                                   </td>
-                                );
-                              });
+                                ];
+                              } else {
+                                // Show monthly summary from 2026 onwards
+                                const currentYear = new Date().getFullYear();
+                                const currentMonth = new Date().getMonth();
+                                const months = [];
+
+                                for (let year = 2026; year <= currentYear; year++) {
+                                  const maxMonth = (year === currentYear) ? currentMonth + 1 : 12;
+                                  for (let month = 0; month < maxMonth; month++) {
+                                    const monthStart = new Date(year, month, 1);
+                                    const monthEnd = new Date(year, month + 1, 0);
+                                    const monthStr = `${year}-${String(month + 1).padStart(2, '0')}`;
+
+                                    // Count days in month
+                                    const daysInMonth = getDaysInMonth(year, month);
+                                    let workingDays = 0;
+                                    let presentDays = 0;
+                                    let leaveDays = 0;
+
+                                    for (let day = 1; day <= daysInMonth; day++) {
+                                      const currentDate = new Date(year, month, day);
+                                      const dayOfWeek = currentDate.getDay();
+                                      const dateStr = `${year}-${String(month + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+
+                                      // Skip Sundays
+                                      if (dayOfWeek === 0) continue;
+
+                                      // Skip future dates
+                                      const today = new Date();
+                                      today.setHours(0, 0, 0, 0);
+                                      const checkDate = new Date(currentDate);
+                                      checkDate.setHours(0, 0, 0, 0);
+                                      if (checkDate > today) continue;
+
+                                      workingDays++;
+
+                                      // Check leave
+                                      const employeeLeaves = detailedLeaveInfo[emp.id] || [];
+                                      const hasLeave = employeeLeaves.some(leave => leave.date === dateStr);
+
+                                      if (hasLeave) {
+                                        leaveDays++;
+                                      } else {
+                                        // Check attendance
+                                        const employeeRecords = allEmployeesData[emp.id]?.records || [];
+                                        const attendanceRecord = employeeRecords.find(record => {
+                                          const recordDate = new Date(record.ClockInTime);
+                                          return recordDate.toDateString() === currentDate.toDateString();
+                                        });
+
+                                        if (attendanceRecord && attendanceRecord.ClockInTime) {
+                                          presentDays++;
+                                        }
+                                      }
+                                    }
+
+                                    const attendancePercentage = workingDays > 0 ? Math.round((presentDays / workingDays) * 100) : 0;
+                                    const cellClass = attendancePercentage >= 90 ? 'bg-green-50 text-green-600' :
+                                      attendancePercentage >= 70 ? 'bg-yellow-50 text-yellow-600' :
+                                        'bg-red-50 text-red-600';
+
+                                    months.push(
+                                      <td key={`${year}-${month}`} className={`px-2 py-4 text-center text-xs font-medium ${cellClass}`}>
+                                        {attendancePercentage}%
+                                      </td>
+                                    );
+                                  }
+                                }
+                                return months;
+                              }
                             })()}
                           </tr>
                         ))}
                       </tbody>
                     </table>
-                  </div>
-                )}
-
-                {selectedMonth && (
-                  <div className="mt-6 p-4 bg-gray-50 rounded-lg">
-                    <h3 className="text-sm font-semibold text-gray-700 mb-2">Legend:</h3>
-                    <div className="flex flex-wrap gap-4 text-sm">
-                      <div className="flex items-center gap-2">
-                        <span className="w-4 h-4 bg-green-50 border border-green-200 rounded text-green-600 text-center font-medium text-xs">P</span>
-                        <span className="text-gray-600">Present (Clocked-in)</span>
-                      </div>
-                      <div className="flex items-center gap-2">
-                        <span className="w-4 h-4 bg-red-50 border border-red-200 rounded text-red-600 text-center font-medium text-xs">L</span>
-                        <span className="text-gray-600">Leave</span>
-                      </div>
-                      <div className="flex items-center gap-2">
-                        <span className="w-4 h-4 bg-orange-50 border border-orange-200 rounded text-orange-600 text-center font-medium text-xs">F</span>
-                        <span className="text-gray-600">Festival (No attendance, excluding Sundays)</span>
-                      </div>
-                      <div className="flex items-center gap-2">
-                        <span className="w-4 h-4 bg-gray-50 border border-gray-200 rounded text-gray-400 text-center font-medium text-xs">-</span>
-                        <span className="text-gray-600">Future (Upcoming days)</span>
-                      </div>
-                      <div className="flex items-center gap-2">
-                        <span className="w-4 h-4 bg-gray-50 border border-gray-200 rounded text-gray-400 text-center font-medium text-xs">S</span>
-                        <span className="text-gray-600">Sunday</span>
-                      </div>
-                    </div>
                   </div>
                 )}
               </div>
@@ -2302,7 +2540,7 @@ export default function AdminDashboard() {
           onClick={() => setShowLeaveModal(false)}
         >
           <div
-            className="relative max-w-4xl max-h-full bg-white rounded-xl overflow-hidden shadow-2xl w-full max-h-[80vh]"
+            className="relative max-w-[90vw] max-h-full bg-white rounded-xl overflow-hidden shadow-2xl w-full max-h-[80vh]"
             onClick={(e) => e.stopPropagation()}
           >
             <div className="flex justify-between items-center p-3 border-b bg-linear-to-r from-purple-50 to-blue-50">
@@ -2328,7 +2566,9 @@ export default function AdminDashboard() {
             <div className="p-3 overflow-y-auto max-h-[60vh]">
               {(() => {
                 const employeeLeaves = detailedLeaveInfo[selectedEmployeeForLeaves.id] || [];
-                const totalLeaveDays = approvedLeaves[selectedEmployeeForLeaves.id] || 0;
+                const approvedLeaveDays = approvedLeaves[selectedEmployeeForLeaves.id] || 0;
+                const rejectedLeaveDays = rejectedLeaves[selectedEmployeeForLeaves.id] || 0;
+                const totalLeaveDays = approvedLeaveDays + rejectedLeaveDays;
 
                 if (employeeLeaves.length === 0) {
                   return (
@@ -2345,7 +2585,7 @@ export default function AdminDashboard() {
                 return (
                   <div className="space-y-6">
                     {/* Summary Cards */}
-                    <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                    <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
                       <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
                         <div className="flex items-center justify-between">
                           <div>
@@ -2358,14 +2598,14 @@ export default function AdminDashboard() {
                         </div>
                       </div>
 
-                      <div className="bg-orange-50 border border-orange-200 rounded-lg p-4">
+                      <div className="bg-green-50 border border-green-200 rounded-lg p-4">
                         <div className="flex items-center justify-between">
                           <div>
-                            <p className="text-orange-600 text-sm font-medium">Total Leave Days</p>
-                            <p className="text-2xl font-bold text-orange-900 mt-1">{totalLeaveDays}</p>
+                            <p className="text-green-600 text-sm font-medium">Approved Leave Days</p>
+                            <p className="text-2xl font-bold text-green-900 mt-1">{approvedLeaveDays}</p>
                           </div>
-                          <div className="bg-orange-100 rounded-lg p-3">
-                            <span className="text-2xl">📅</span>
+                          <div className="bg-green-100 rounded-lg p-3">
+                            <span className="text-2xl">✅</span>
                           </div>
                         </div>
                       </div>
@@ -2373,17 +2613,33 @@ export default function AdminDashboard() {
                       <div className="bg-red-50 border border-red-200 rounded-lg p-4">
                         <div className="flex items-center justify-between">
                           <div>
-                            <p className="text-red-600 text-sm font-medium">Salary Deduction</p>
-                            <p className="text-2xl font-bold text-red-900 mt-1">
+                            <p className="text-red-600 text-sm font-medium">Rejected Leave Days</p>
+                            <p className="text-2xl font-bold text-red-900 mt-1">{rejectedLeaveDays}</p>
+                            <p className="text-xs text-red-600 mt-1">(Double deduction: {rejectedLeaveDays * 2} days)</p>
+                          </div>
+                          <div className="bg-red-100 rounded-lg p-3">
+                            <span className="text-2xl">❌</span>
+                          </div>
+                        </div>
+                      </div>
+
+                      <div className="bg-orange-50 border border-orange-200 rounded-lg p-4">
+                        <div className="flex items-center justify-between">
+                          <div>
+                            <p className="text-orange-600 text-sm font-medium">Total Salary Deduction</p>
+                            <p className="text-2xl font-bold text-orange-900 mt-1">
                               ₹{(() => {
                                 const empSalary = employeesSalaryData.find(emp => emp.id === parseInt(selectedEmployeeForLeaves.id));
                                 const monthlySalary = empSalary?.salary || 20000;
-                                const dailyWage = Math.round(monthlySalary / getCurrentMonthDays());
-                                return (totalLeaveDays * dailyWage).toLocaleString();
+                                const currentMonthDays = getCurrentMonthDays();
+                                const dailyWage = monthlySalary / currentMonthDays;
+                                const totalDeductionDays = approvedLeaveDays + (rejectedLeaveDays * 2);
+                                const exactTotal = totalDeductionDays * dailyWage;
+                                return exactTotal.toFixed(2).toLocaleString();
                               })()}
                             </p>
                           </div>
-                          <div className="bg-red-100 rounded-lg p-3">
+                          <div className="bg-orange-100 rounded-lg p-3">
                             <span className="text-2xl">💰</span>
                           </div>
                         </div>
@@ -2393,59 +2649,76 @@ export default function AdminDashboard() {
                     {/* Leave Details List */}
                     <div>
                       <h4 className="text-lg font-semibold text-gray-900 mb-4">Leave History</h4>
-                      <div className="space-y-3">
-                        {employeeLeaves.map((leave, index) => (
-                          <div key={index} className="bg-white border border-gray-200 rounded-lg p-4 hover:shadow-md transition-shadow">
-                            <div className="flex items-center justify-between">
-                              <div className="flex items-center gap-4">
-                                <div className="text-center">
-                                  <div className="text-lg font-bold text-gray-900">
-                                    {new Date(leave.date).getDate()}
+                      <div className="space-y-3 grid grid-cols-1 lg:grid-cols-2 gap-4">
+                        {employeeLeaves.map((leave, index) => {
+                          const isRejected = leave.status === 'reject' || leave.status === 'rejected';
+                          const deductionDays = isRejected ? (leave.type === 'Full Day' ? 2 : 1) : (leave.type === 'Full Day' ? 1 : 0.5);
+                          return (
+                            <div key={index} className={`bg-white border rounded-lg p-4 hover:shadow-md transition-shadow ${isRejected ? 'border-red-200 bg-red-50' : 'border-gray-200'}`}>
+                              <div className="flex items-center justify-between">
+                                <div className="flex items-center gap-4">
+                                  <div className="text-center">
+                                    <div className="text-lg font-bold text-gray-900">
+                                      {new Date(leave.date).getDate()}
+                                    </div>
+                                    <div className="text-xs text-gray-600">
+                                      {new Date(leave.date).toLocaleDateString('en-IN', { month: 'short' })}
+                                    </div>
                                   </div>
-                                  <div className="text-xs text-gray-600">
-                                    {new Date(leave.date).toLocaleDateString('en-IN', { month: 'short' })}
+                                  <div className="h-12 w-px bg-gray-200"></div>
+                                  <div>
+                                    <div className="flex items-center gap-2 mb-1">
+                                      <span className={`px-3 py-1 text-xs rounded-full font-medium border ${leave.type === 'Full Day'
+                                        ? 'bg-red-100 text-red-800 border-red-200'
+                                        : 'bg-orange-100 text-orange-800 border-orange-200'
+                                        }`}>
+                                        {leave.type === 'Full Day' ? '📅 Full Day' :
+                                          leave.type === 'First Half' ? '🌅 First Half' : '🌆 Second Half'}
+                                      </span>
+                                      <span className={`px-3 py-1 text-xs rounded-full font-medium border ${isRejected
+                                          ? 'bg-red-100 text-red-800 border-red-200'
+                                          : 'bg-green-100 text-green-800 border-green-200'
+                                        }`}>
+                                        {isRejected ? '❌ Rejected' : '✅ Approved'}
+                                      </span>
+                                      <span className="text-xs text-gray-600 bg-gray-100 px-2 py-1 rounded">
+                                        {leave.leaveType}
+                                      </span>
+                                    </div>
+                                    <div className="text-sm text-gray-900">
+                                      {new Date(leave.date).toLocaleDateString('en-IN', {
+                                        weekday: 'long',
+                                        year: 'numeric',
+                                        month: 'long',
+                                        day: 'numeric'
+                                      })}
+                                    </div>
+                                    {isRejected && (
+                                      <div className="text-xs text-red-600 mt-1 font-medium">
+                                        ⚠️ Double deduction applied: {deductionDays} days
+                                      </div>
+                                    )}
                                   </div>
                                 </div>
-                                <div className="h-12 w-px bg-gray-200"></div>
-                                <div>
-                                  <div className="flex items-center gap-2 mb-1">
-                                    <span className={`px-3 py-1 text-xs rounded-full font-medium border ${leave.type === 'Full Day'
-                                      ? 'bg-red-100 text-red-800 border-red-200'
-                                      : 'bg-orange-100 text-orange-800 border-orange-200'
-                                      }`}>
-                                      {leave.type === 'Full Day' ? '📅 Full Day' :
-                                        leave.type === 'First Half' ? '🌅 First Half' : '🌆 Second Half'}
-                                    </span>
-                                    <span className="text-xs text-gray-600 bg-gray-100 px-2 py-1 rounded">
-                                      {leave.leaveType}
-                                    </span>
+                                <div className="text-right">
+                                  <div className="text-sm text-gray-600 mb-1">
+                                    {deductionDays} day{deductionDays !== 1 ? 's' : ''} deduction
                                   </div>
-                                  <div className="text-sm text-gray-900">
-                                    {new Date(leave.date).toLocaleDateString('en-IN', {
-                                      weekday: 'long',
-                                      year: 'numeric',
-                                      month: 'long',
-                                      day: 'numeric'
-                                    })}
+                                  <div className="text-sm font-medium text-red-600">
+                                    -₹{(() => {
+                                      const empSalary = employeesSalaryData.find(emp => emp.id === parseInt(selectedEmployeeForLeaves.id));
+                                      const monthlySalary = empSalary?.salary || 20000;
+                                      const currentMonthDays = getCurrentMonthDays();
+                                      const dailyWage = monthlySalary / currentMonthDays;
+                                      const exactAmount = deductionDays * dailyWage;
+                                      return exactAmount.toFixed(2);
+                                    })()}
                                   </div>
-                                </div>
-                              </div>
-                              <div className="text-right">
-                                <div className="text-sm text-gray-600 mb-1">
-                                  {leave.type === 'Full Day' ? '1 day' : '0.5 day'}
-                                </div>
-                                <div className="text-sm font-medium text-red-600">
-                                  -₹{(() => {
-                                    const empSalary = employeesSalaryData.find(emp => emp.id === parseInt(selectedEmployeeForLeaves.id));
-                                    const monthlySalary = empSalary?.salary || 20000;
-                                    const dailyWage = Math.round(monthlySalary / getCurrentMonthDays());
-                                    return (leave.type === 'Full Day' ? dailyWage : Math.round(dailyWage / 2)).toLocaleString();
-                                  })()}
                                 </div>
                               </div>
                             </div>
-                          </div>
-                        ))}
+                          )
+                        })}
                       </div>
                     </div>
                   </div>
@@ -2466,6 +2739,23 @@ export default function AdminDashboard() {
           </div>
         </div>
       )}
+
+      {/* Leave Notification Toast */}
+      <LeaveNotificationToast
+        pendingLeaves={pendingLeaveRequests}
+        isVisible={showLeaveNotification}
+        onClose={() => setShowLeaveNotification(false)}
+        onApprove={async (leaveId) => {
+          await updateLeaveStatus(leaveId, 'approve');
+        }}
+        onReject={async (leaveId) => {
+          await updateLeaveStatus(leaveId, 'reject');
+        }}
+        onGoToLeaveManagement={() => {
+          setShowLeaveNotification(false);
+          setViewMode('leave-management');
+        }}
+      />
 
       {/* Toast Container */}
       {toasts.map((toast) => (

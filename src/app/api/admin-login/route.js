@@ -4,7 +4,7 @@ import { NextResponse } from "next/server";
 export async function POST(req) {
   const { email, password } = await req.json();
 
-  if (email === "Bunny" && password === "R@dh@123#") {
+  if (email === "Bunny" && password === "Ved@123#") {
     const token = jwt.sign(
       { role: "admin" },
       process.env.JWT_SECRET,

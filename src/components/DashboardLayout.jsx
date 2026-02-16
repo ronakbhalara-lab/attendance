@@ -24,11 +24,6 @@ export default function DashboardLayout({ children }) {
               </button>
               <h1 className="text-lg font-semibold text-gray-900">Attendance System</h1>
             </div>
-            {userDetails?.salary && (
-              <div className="text-sm text-green-600 font-medium">
-                Salary: ₹{userDetails.salary.toLocaleString()}
-              </div>
-            )}
             {/* <div className="text-sm text-gray-600">
               {authUser?.role === "User" ? `User ${authUser?.id}` : "Admin"}
             </div> */}
