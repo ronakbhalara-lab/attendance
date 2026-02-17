@@ -151,8 +151,6 @@ const generateSalarySlipPDF = (
   doc.setFont("helvetica", "normal");
   y += 8;
   doc.text(employeeData.employee.name, margin, y);
-  y += 6;
-  doc.text(`Monthly Salary: ${formatCurrency(monthlySalary)}`, margin, y);
   // y += 6;
   // doc.text(
   //   `Department: ${employeeData.employee.department || "General"}`,
@@ -200,20 +198,15 @@ const generateSalarySlipPDF = (
 
   const rows = [
     [
-      `Working Days (1st - ${currentDay} ${currentMonth.split(' ')[0]})`,
-      approvedDays,
-      formatCurrency(approvedDays * dailyWage),
-    ],
-    [
-      `Total Days in Period`,
-      daysUpToToday,
-      "",
+      `Total salary (${totalDaysInMonth} days)`,
+      totalDaysInMonth,
+      formatCurrency(monthlySalary),
     ],
     [
       `Leave Deductions (${approvedLeaveDays + rejectedLeaveDays} days)`,
-      `-${totalLeaveDeduction}`,
+      `${totalLeaveDeduction}`,
       `-${formatCurrency(totalLeaveDeduction * dailyWage)}`,
-    ]
+    ]     
   ];
 
   rows.forEach((row) => {
@@ -235,14 +228,16 @@ const generateSalarySlipPDF = (
     y += rowHeight;
   });
 
-  // Add working days calculation row
+  // Add total calculation row
   doc.rect(margin, y, tableWidth, rowHeight);
   doc.setFont("helvetica", "bold");
-  doc.text("Actual Working Days", col1 + 3, y + 7);
-  doc.text(String(actualWorkingDays), col2 + col2Width / 2, y + 7, {
+  doc.setFontSize(14);
+  doc.text("TOTAL", col1 + 3, y + 7);
+  doc.text("", col2 + col2Width / 2, y + 7, {
     align: "center",
   });
-  doc.text(formatCurrency(netSalary), col3 + col3Width - 3, y + 7, {
+  const totalAfterDeduction = monthlySalary - (totalLeaveDeduction * dailyWage);
+  doc.text(formatCurrency(totalAfterDeduction), col3 + col3Width - 3, y + 7, {
     align: "right",
   });
 
@@ -264,24 +259,24 @@ const generateSalarySlipPDF = (
   //   y
   // );
 
-  y += 15;
+  // y += 15;
 
-  // ================= NET SALARY =================
-  doc.setFont("helvetica", "bold");
-  doc.setFontSize(18);
+  // // ================= NET SALARY =================
+  // doc.setFont("helvetica", "bold");
+  // doc.setFontSize(18);
 
-  doc.text(
-    `NET SALARY FOR PERIOD : ${formatCurrency(netSalary)}`,
-    pageWidth - margin,
-    y,
-    { align: "right" }
-  );
+  // doc.text(
+  //   `NET SALARY FOR PERIOD : ${formatCurrency(netSalary)}`,
+  //   pageWidth - margin,
+  //   y,
+  //   { align: "right" }
+  // );
 
-  y += 15;
-  doc.line(margin, y, pageWidth - margin, y);
+  // y += 15;
+  // doc.line(margin, y, pageWidth - margin, y);
 
   // ================= SIGNATURE SECTION =================
-  y += 5;
+  y += 20;
   
   // Right signature line - Vednova IT Solution
   const rightSignatureX = pageWidth - margin - 80;
