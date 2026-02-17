@@ -2340,7 +2340,7 @@ export default function AdminDashboard() {
                           </div>
 
                           {/* Leave Deduction Details */}
-                          {(approvedLeaveDays > 0 || rejectedLeaveDays > 0) && (
+                          {/* {(approvedLeaveDays > 0 || rejectedLeaveDays > 0) && (
                             <div className="mb-4 p-3 bg-orange-50 border border-orange-200 rounded-lg">
                               <h4 className="font-semibold text-orange-800 mb-2">Leave Deductions</h4>
                               <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
@@ -2359,7 +2359,7 @@ export default function AdminDashboard() {
                                 Total Leave Deduction: {totalLeaveDeductionDays} days = ₹{Math.round(totalLeaveDeductionDays * dailyWage * 100) / 100}
                               </div>
                             </div>
-                          )}
+                          )} */}
 
                           {/* Attendance Summary Table - Only Current Month Records */}
                           <div className="mt-6">
