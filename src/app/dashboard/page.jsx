@@ -113,9 +113,15 @@ export default function Dashboard() {
         const approvedLeaveToday = leaves.some(leave => {
           const startDate = new Date(leave.startDate);
           const endDate = new Date(leave.endDate);
-          const isApproved = (leave.status === 'approve' || leave.status === 'approved');
-          const isInRange = startDate <= today && endDate >= today;
+          const today = new Date();
           
+          // Normalize all dates to start/end of day for proper comparison
+          const startOfDay = new Date(today.getFullYear(), today.getMonth(), today.getDate());
+          const endOfDay = new Date(today.getFullYear(), today.getMonth(), today.getDate(), 23, 59, 59, 999);
+          
+          const isApproved = (leave.status === 'approve' || leave.status === 'approved');
+          const isInRange = startDate <= endOfDay && endDate >= startOfDay;
+        
           return isApproved && isInRange;
         });
         setHasApprovedLeaveToday(approvedLeaveToday);

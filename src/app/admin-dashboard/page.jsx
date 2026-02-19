@@ -2577,7 +2577,7 @@ export default function AdminDashboard() {
                   <label className="block text-sm font-medium text-gray-700 mb-2">Filter by Month (Optional)</label>
                   <input
                     type="month"
-                    value={selectedMonth}
+                    value={typeof selectedMonth === 'string' ? selectedMonth : selectedMonth.toISOString().slice(0, 7)}
                     onChange={(e) => setSelectedMonth(e.target.value)}
                     min="2026-01"
                     className="px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
@@ -2609,7 +2609,8 @@ export default function AdminDashboard() {
                           {(() => {
                             if (selectedMonth) {
                               // Show selected month days
-                              const [year, month] = selectedMonth.split('-');
+                              const monthString = typeof selectedMonth === 'string' ? selectedMonth : selectedMonth.toISOString().slice(0, 7); // YYYY-MM format
+                              const [year, month] = monthString.split('-');
                               const daysInMonth = getDaysInMonth(parseInt(year), parseInt(month) - 1);
                               return Array.from({ length: daysInMonth }, (_, i) => (
                                 <th key={i} className="px-2 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider">
@@ -2654,7 +2655,8 @@ export default function AdminDashboard() {
                             {(() => {
                               if (selectedMonth) {
                                 // Show selected month data
-                                const [year, month] = selectedMonth.split('-');
+                                const monthString = typeof selectedMonth === 'string' ? selectedMonth : selectedMonth.toISOString().slice(0, 7);
+                                const [year, month] = monthString.split('-');
                                 const daysInMonth = getDaysInMonth(parseInt(year), parseInt(month) - 1);
                                 let presentCount = 0;
                                 let leaveCount = 0;
@@ -3072,7 +3074,7 @@ export default function AdminDashboard() {
       )}
 
       {/* Leave Notification Toast */}
-      <LeaveNotificationToast
+      {/* <LeaveNotificationToast
         pendingLeaves={pendingLeaveRequests}
         isVisible={showLeaveNotification}
         onClose={() => setShowLeaveNotification(false)}
@@ -3086,7 +3088,7 @@ export default function AdminDashboard() {
           setShowLeaveNotification(false);
           setViewMode('leave-management');
         }}
-      />
+      /> */}
 
       {/* Toast Container */}
       {toasts.map((toast) => (

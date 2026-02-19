@@ -2,7 +2,7 @@ import * as sql from 'mssql';
 
 const config = {
   server: 'F4\\F4',
-  database: 'attendance',
+  database: 'attendanceTest',
   user: 'sa',
   password: 'ved@123',
   port: 1433,
